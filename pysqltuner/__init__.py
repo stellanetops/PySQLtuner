@@ -8,10 +8,12 @@ Inspired by Major Hayden's MySQLtuner-perl project:
 https://github.com/major/MySQLtuner-perl
 """
 
+import getpass
 import platform
 import os
 import re
 import requests as req
+import shutil
 import subprocess as sbpr
 import typing as typ
 import pysqltuner.fancy_print as fp
@@ -166,12 +168,12 @@ def get_process_memory(process: str) -> int:
         "-o",
         "rss"
     )
-    memory: int = sbpr.check_output(memory_command, universal_newlines=True)
+    memory: typ.Sequence[str] = sbpr.check_output(memory_command, universal_newlines=True)
 
     if len(memory) != 2:
         return 0
     else:
-        return memory[1] * 1024
+        return int(memory[1]) * 1024
 
 
 def other_process_memory() -> int:
@@ -393,7 +395,6 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
 
                 physical_memory: int = int(sbpr.check_output(win_mem_cmd, universal_newlines=True))
 
-
                 win_swap_cmd: typ.Sequence[str] = (
                     "wmic",
                     "OS",
@@ -423,15 +424,6 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     )
 
 
-def is_exe(exe_path: str) -> bool:
-    """Checks if file is executable program
-
-    :param str exe_path: executable file path
-    :return bool:
-    """
-    return os.path.isfile(exe_path) and os.access(exe_path, os.X_OK)
-
-
 def is_readable(read_path: str) -> bool:
     """Checks if file is readable
 
@@ -439,26 +431,6 @@ def is_readable(read_path: str) -> bool:
     :return bool:
     """
     return os.path.isfile(read_path) and os.access(read_path, os.R_OK)
-
-
-def which(program_name: str) -> str:
-    """Finds full path of program
-
-    :param str program_name: name of program
-    :return str: full path of program
-    """
-    file_path, _ = os.path.split(program_name)
-    if file_path:
-        if is_exe(program_name):
-            return program_name
-
-    else:
-        for path in os.environ["PATH"].split(os.pathsep):
-            program_path: str = path.strip("\"")
-            exe_file: str = os.path.join(program_path, program_name)
-
-            if is_exe(exe_file):
-                return exe_file
 
 
 def mysql_setup(option: Option) -> bool:
@@ -470,7 +442,7 @@ def mysql_setup(option: Option) -> bool:
     if option.mysqladmin:
         mysqladmin_command: str = option.mysqladmin.strip()
     else:
-        mysqladmin_command: str = which("mysqladmin").strip()
+        mysqladmin_command: str = shutil.which("mysqladmin").strip()
 
     if not os.path.exists(mysqladmin_command) and option.mysqladmin:
         fp.bad_print(f"Unable to find the mysqladmin command you specified {mysqladmin_command}", option)
@@ -482,9 +454,9 @@ def mysql_setup(option: Option) -> bool:
     if option.mysqlcmd:
         mysql_command: str = option.mysqlcmd.strip()
     else:
-        mysql_command: str = which("mysql").strip()
+        mysql_command: str = shutil.which("mysql").strip()
 
-    if not os.path.exists(mysql_command) and option.mysql:
+    if not os.path.exists(mysql_command) and option.mysqlcmd:
         fp.bad_print(f"Unable to find the mysql command you specified {mysql_command}", option)
         raise FileNotFoundError
     elif not os.path.exists(mysql_command):
@@ -538,7 +510,7 @@ def mysql_setup(option: Option) -> bool:
             fp.bad_print("Attempted to use login credentials, but they were invalid", option)
             raise ConnectionRefusedError
 
-    svcprop_exe: str = which("svcprop")
+    svcprop_exe: str = shutil.which("svcprop")
     if svcprop_exe.startswith("/"):
         # We are on Solaris
         svc_user_command: typ.Sequence[str] = (
@@ -615,7 +587,7 @@ def mysql_setup(option: Option) -> bool:
                 raise ConnectionRefusedError
 
     elif is_readable("/usr/local/directadmin/conf/mysql.conf") and not option.do_remote:
-        # It's a DirectAdmin box, use the avaiable credentials
+        # It's a DirectAdmin box, use the available credentials
         mysql_user_command: typ.Sequence[str] = (
             "cat",
             "/usr/local/directadmin/conf/mysql.conf",
@@ -661,8 +633,108 @@ def mysql_setup(option: Option) -> bool:
             fp.bad_print("Attempted to use login credentials from DirectAdmin, but they failed", option)
             raise ConnectionRefusedError
 
-if __name__ == "__main__":
-    option: Option = Option()
-    os_name: str = platform.system()
-    if os_name == "MSWin32":
-        fp.info_print(f"* Windows OS({os_name}) is not fully supported", option)
+    elif is_readable("/etc/mysql/debian.cnf") and not option.do_remote:
+        # We have a debian maintenance account, use the available credentials
+        mysql_login: str = "--defaults-file=/etc/mysql/debian.cnf"
+        login_command: typ.Sequence[str] = (
+            mysqladmin_command,
+            mysql_login,
+            "ping",
+            "2>&1"
+        )
+        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+
+        if re.match(r"mysqld is alive", login_status):
+            fp.good_print("Logged in using credentials from debian maintenance account.", option)
+            return True
+        else:
+            fp.bad_print("Attempted to use login credentials from DirectAdmin, but they failed", option)
+            raise ConnectionRefusedError
+
+    elif option.defaults_file and is_readable(option.defaults_file):
+        # Defaults File
+        fp.debug_print(f"defaults file detected: {option.defaults_file}", option)
+
+        mysql_defaults_command: typ.Sequence[str] = (
+            mysql_command,
+            "--print-defaults"
+        )
+        mysql_cli_defaults: str = sbpr.check_output(mysql_defaults_command, universal_newlines=True)
+
+        mysql_login: str = f"--defaults-file={option.defaults_file}"
+        login_command: typ.Sequence[str] = (
+            mysqladmin_command,
+            mysql_login,
+            "ping",
+            "2>&1"
+        )
+        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+
+        if re.match(r"mysqld is alive", login_status):
+            fp.good_print("Logged in using credentials from defaults file account.", option)
+            return True
+    else:
+        # It's not Plesk or debian, we should try a login
+        login_command: typ.Sequence[str] = (
+            mysqladmin_command,
+            remote_connect,
+            "ping",
+            "2>&1"
+        )
+        fp.debug_print(" ".join(login_command), option)
+
+        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+
+        if re.match(r"mysqld is alive", login_status):
+            # Login went just fine
+            mysql_login: str = f" {remote_connect} "
+
+            # Did this go well because of a .my.cnf file or is there no password set?
+            user_path: str = os.environ["HOME"].strip()
+            if not os.path.exists(f"{user_path}/.my.cnf") and not os.path.exists(f"{user_path}/.mylogin.cnf"):
+                fp.bad_print("Successfully authenticated with no password - SECURITY RISK!", option)
+
+            return True
+        else:
+            if option.no_ask:
+                fp.bad_print("Attempted to use login credentials, but they were invalid", option)
+                raise ConnectionRefusedError
+
+            # If --user is defined no need to ask for username
+            if option.user:
+                name: str = option.user.strip()
+            else:
+                name: str = input("Please enter your MySQL administrative login: ").strip()
+
+            # If --password is defined no need to ask for password
+            if option.password:
+                password: str = option.password.strip()
+            else:
+                password: str = getpass.getpass("Please enter your MySQL administrative password: ").strip()
+
+            mysql_login: str = f"-u {name}"
+            if password:
+                mysql_login = " ".join((mysql_login, f"-p'{password}'"))
+
+            mysql_login: str = "".join((mysql_login, remote_connect))
+
+            login_command: typ.Sequence[str] = (
+                mysqladmin_command,
+                "ping",
+                mysql_login,
+                "2>&1"
+            )
+
+            login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+
+            if re.match(r"mysqld is alive", login_status):
+                if not password:
+                    # Did this go well because of a .my.cnf file or is there no password set?
+                    user_path: str = os.environ["HOME"].strip()
+                    if not os.path.exists(f"{user_path}/.my.cnf"):
+                        fp.bad_print("Successfully authenticated with no password - SECURITY RISK!", option)
+
+                return True
+            else:
+                fp.bad_print("Attempted to use login credentials but they were invalid", option)
+                raise ConnectionRefusedError
