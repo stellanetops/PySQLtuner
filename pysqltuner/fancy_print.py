@@ -4,9 +4,9 @@ Highlights different aspects of output
 """
 
 import re
-import subprocess as sbpr
 import typing as typ
 import pysqltuner as tuner
+import pysqltuner.util as util
 
 
 class Color:
@@ -15,7 +15,7 @@ class Color:
     end: str = "\e[0m"
 
 
-me: str = sbpr.check_output(r"whoami").strip()
+me: str = util.get((r"whoami",))
 opt: tuner.Option = tuner.Option()
 
 

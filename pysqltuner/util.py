@@ -6,7 +6,24 @@ import math
 import re
 import subprocess as sbpr
 import typing as typ
-import pysqltuner as tuner
+
+
+def get(command: typ.Sequence) -> str:
+    """Stdout from command line standardized for PySQLtuner
+
+    :param typ.Sequence command: input command
+    :return str: formatted stdout
+    """
+    return str(sbpr.check_output(command, shell=True, universal_newlines=True).strip(), encoding="utf-8")
+
+
+def run(command: typ.Sequence) -> str:
+    """Runs command
+
+    :param typ.Sequence command: input command
+    :return:
+    """
+    sbpr.run(command, shell=True, encoding="utf-8")
 
 
 def bytes_to_string(amount: int=0) -> str:

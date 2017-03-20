@@ -9,12 +9,10 @@ https://github.com/major/MySQLtuner-perl
 """
 
 import getpass
-import platform
 import os
 import re
 import requests as req
 import shutil
-import subprocess as sbpr
 import typing as typ
 import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
@@ -24,7 +22,7 @@ __email__: str = "immanuelqrw@gmail.com"
 
 
 class Option:
-    def __init__(self):
+    def __init__(self) -> None:
         self.silent: bool = False
         self.no_color: bool = False
         self.no_good: bool = False
@@ -61,6 +59,7 @@ class Option:
         self.mysqladmin: str = None
         self.mysqlcmd: str = None
         self.do_remote: int = None
+        self.remote_connect: str = None
 
 
 def usage() -> None:
@@ -168,7 +167,7 @@ def get_process_memory(process: str) -> int:
         "-o",
         "rss"
     )
-    memory: typ.Sequence[str] = sbpr.check_output(memory_command, universal_newlines=True)
+    memory: typ.Sequence[str] = util.get(memory_command)
 
     if len(memory) != 2:
         return 0
@@ -186,7 +185,7 @@ def other_process_memory() -> int:
         "eaxo",
         "pid,command"
     )
-    processes: typ.Sequence[str] = sbpr.check_output(process_cmd, universal_newlines=True)
+    processes: typ.Sequence[str] = util.get(process_cmd)
 
     process_filters: typ.Sequence[typ.Tuple[str, str]] = (
         (r".*PID.*", ""),
@@ -219,7 +218,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     :param Option option:
     :return typ.Tuple[str, int, str, int, str, int, str]:
     """
-    current_os: str = sbpr.check_output(r"uname").strip()
+    current_os: str = util.get(r"uname").strip()
     du_flags: str = "-b" if re.match(r"Linux", current_os) else ""
     if option.force_mem is not None and option.force_mem > 0:
         physical_memory: int = option.force_mem * 1024 ** 2
@@ -244,7 +243,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "'{print \$2}'"
                 )
 
-                physical_memory: int = int(sbpr.check_output(linux_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(linux_mem_cmd))
                 physical_memory *= 1024
 
                 linux_swap_cmd: typ.Sequence[str] = (
@@ -257,7 +256,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "'{print \$2}'"
                 )
 
-                swap_memory: int = int(sbpr.check_output(linux_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(linux_swap_cmd))
                 swap_memory *= 1024
 
             elif re.match(r"Darwin", current_os):
@@ -267,7 +266,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "hw.memsize"
                 )
 
-                physical_memory: int = int(sbpr.check_output(darwin_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(darwin_mem_cmd))
 
                 darwin_swap_cmd: typ.Sequence[str] = (
                     "sysctl"
@@ -281,7 +280,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "'s/\..*\$//'"
                 )
 
-                swap_memory: int = int(sbpr.check_output(darwin_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(darwin_swap_cmd))
 
             elif re.match(r"NetBSD|OpenBSD|FreeBSD", current_os):
                 xbsd_mem_cmd: typ.Sequence[str] = (
@@ -290,7 +289,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "hw.physmem"
                 )
 
-                physical_memory: int = int(sbpr.check_output(xbsd_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(xbsd_mem_cmd))
                 if physical_memory < 0:
                     xbsd_mem64_cmd: typ.Sequence[str] = (
                         "sysctl",
@@ -298,7 +297,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                         "hw.physmem64"
                     )
 
-                    physical_memory: int = int(sbpr.check_output(xbsd_mem64_cmd, universal_newlines=True))
+                    physical_memory: int = int(util.get(xbsd_mem64_cmd))
 
                 xbsd_swap_cmd: typ.Sequence[str] = (
                     "swapctl"
@@ -313,7 +312,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "{ print s }"
                 )
 
-                swap_memory: int = int(sbpr.check_output(xbsd_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(xbsd_swap_cmd))
 
             elif re.match(r"BSD", current_os):
                 bsd_mem_cmd: typ.Sequence[str] = (
@@ -322,7 +321,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "hw.physmem"
                 )
 
-                physical_memory: int = int(sbpr.check_output(bsd_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(bsd_mem_cmd))
 
                 bsd_swap_cmd: typ.Sequence[str] = (
                     "swapinfo"
@@ -336,7 +335,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "{ print s }"
                 )
 
-                swap_memory: int = int(sbpr.check_output(bsd_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(bsd_swap_cmd))
 
             elif re.match(r"SunOS", current_os):
                 sun_mem_cmd: typ.Sequence[str] = (
@@ -352,7 +351,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "' "
                 )
 
-                physical_memory: int = int(sbpr.check_output(sun_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(sun_mem_cmd))
                 physical_memory *= 1024 ** 2
 
                 swap_memory: int = 0
@@ -369,7 +368,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "'{print \$2}'"
                 )
 
-                physical_memory: int = int(sbpr.check_output(aix_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(aix_mem_cmd))
                 physical_memory *= 1024
 
                 aix_swap_cmd: typ.Sequence[str] = (
@@ -382,7 +381,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "{print \$2}'"
                 )
 
-                swap_memory: int = int(sbpr.check_output(aix_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(aix_swap_cmd))
                 swap_memory *= 1024 ** 2
 
             elif re.match(r"windows", current_os, re.IGNORECASE):
@@ -393,7 +392,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "TotalPhysicalMemory"
                 )
 
-                physical_memory: int = int(sbpr.check_output(win_mem_cmd, universal_newlines=True))
+                physical_memory: int = int(util.get(win_mem_cmd))
 
                 win_swap_cmd: typ.Sequence[str] = (
                     "wmic",
@@ -402,7 +401,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
                     "FreeVirtualMemory"
                 )
 
-                swap_memory: int = int(sbpr.check_output(win_swap_cmd, universal_newlines=True))
+                swap_memory: int = int(util.get(win_swap_cmd))
 
         except MemoryError:
             memory_error(option)
@@ -467,7 +466,7 @@ def mysql_setup(option: Option) -> bool:
         mysql_command,
         "--print-defaults"
     )
-    mysql_cli_defaults: str = sbpr.check_output(mysql_defaults_command, universal_newlines=True)
+    mysql_cli_defaults: str = util.get(mysql_defaults_command)
     fp.debug_print(f"MySQL Client: {mysql_cli_defaults}", option)
 
     if re.match(r"auto-vertical-output", mysql_cli_defaults):
@@ -479,7 +478,7 @@ def mysql_setup(option: Option) -> bool:
     option.port = 3306 if not option.port else option.port
 
     if option.socket:
-        remote_connect: str = f"-S {option.socket} -P {option.port}"
+        option.remote_connect: str = f"-S {option.socket} -P {option.port}"
 
     if option.host:
         option.host = option.host.strip()
@@ -489,20 +488,20 @@ def mysql_setup(option: Option) -> bool:
             raise ConnectionRefusedError
 
         fp.info_print(f"Performing tests on {option.host}:{option.port}", option)
-        remote_connect: str = f"-h {option.host} -P {option.port}"
+        option.remote_connect: str = f"-h {option.host} -P {option.port}"
 
         if option.host not in ("127.0.0.1", "localhost"):
             option.do_remote: int = 1
 
     if option.user and option.password:
-        mysql_login: str = f"-u {option.user} {remote_connect}"
+        mysql_login: str = f"-u {option.user} {option.remote_connect}"
         login_command: typ.Sequence[str] = (
             mysqladmin_command,
             "ping",
             mysql_login,
             "2>&1"
         )
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
         if re.match(r"mysqld is alive", login_status):
             fp.good_print("Logged in using credentials passed on the command line", option)
             return True
@@ -519,7 +518,7 @@ def mysql_setup(option: Option) -> bool:
             "quickbackup/username",
             "svc:/network/mysql-quickbackup:default"
         )
-        mysql_login: str = sbpr.check_output(svc_user_command, universal_newlines=True)
+        mysql_login: str = util.get(svc_user_command)
         mysql_login = re.sub(r"\s+$", "", mysql_login)
 
         svc_pass_command: typ.Sequence[str] = (
@@ -528,7 +527,7 @@ def mysql_setup(option: Option) -> bool:
             "quickbackup/password",
             "svc:/network/mysql-quickbackup:default"
         )
-        mysql_pass: str = sbpr.check_output(svc_pass_command, universal_newlines=True)
+        mysql_pass: str = util.get(svc_pass_command)
         mysql_pass = re.sub(r"\s+$", "", mysql_pass)
 
         if not mysql_login.startswith("svcprop"):
@@ -540,7 +539,7 @@ def mysql_setup(option: Option) -> bool:
                 "ping",
                 "2>&1"
             )
-            login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+            login_status: str = util.get(login_command)
             if re.match(r"mysqld is alive", login_status):
                 fp.good_print("Logged in using credentials passed from mysql-quickbackup", option)
                 return True
@@ -554,7 +553,7 @@ def mysql_setup(option: Option) -> bool:
             "cat",
             "/etc/psa/.psa.shadow"
         )
-        plesk_pass: str = sbpr.check_output(plesk_command, universal_newlines=True)
+        plesk_pass: str = util.get(plesk_command)
 
         mysql_login: str = f"-u admin -p{plesk_pass}"
         login_command: typ.Sequence[str] = (
@@ -563,7 +562,7 @@ def mysql_setup(option: Option) -> bool:
             mysql_login,
             "2>&1"
         )
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
 
         if not re.match(r"mysqld is alive", login_status):
             # Plesk 10+
@@ -571,7 +570,7 @@ def mysql_setup(option: Option) -> bool:
                 "/usr/local/psa/bin/admin",
                 "--show-password"
             )
-            plesk_pass: str = sbpr.check_output(plesk_command, universal_newlines=True)
+            plesk_pass: str = util.get(plesk_command)
 
             mysql_login: str = f"-u admin -p{plesk_pass}"
             login_command: typ.Sequence[str] = (
@@ -580,7 +579,7 @@ def mysql_setup(option: Option) -> bool:
                 mysql_login,
                 "2>&1"
             )
-            login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+            login_status: str = util.get(login_command)
 
             if not re.match(r"mysqld is alive", login_status):
                 fp.bad_print("Attempted to use login credentials from Plesk and Plesk 10+, but they failed", option)
@@ -595,7 +594,7 @@ def mysql_setup(option: Option) -> bool:
             "egrep",
             "'^user=.*'"
         )
-        mysql_user: str = sbpr.check_output(mysql_user_command, universal_newlines=True)
+        mysql_user: str = util.get(mysql_user_command)
 
         mysql_pass_command: typ.Sequence[str] = (
             "cat",
@@ -604,7 +603,7 @@ def mysql_setup(option: Option) -> bool:
             "egrep",
             "'^passwd=.*'"
         )
-        mysql_pass: str = sbpr.check_output(mysql_pass_command, universal_newlines=True)
+        mysql_pass: str = util.get(mysql_pass_command)
 
         user_filters: typ.Sequence[typ.Tuple[str, str]] = (
             ("user=", ""),
@@ -627,7 +626,7 @@ def mysql_setup(option: Option) -> bool:
             mysql_login,
             "2>&1"
         )
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
 
         if not re.match(r"mysqld is alive", login_status):
             fp.bad_print("Attempted to use login credentials from DirectAdmin, but they failed", option)
@@ -642,7 +641,7 @@ def mysql_setup(option: Option) -> bool:
             "ping",
             "2>&1"
         )
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
 
         if re.match(r"mysqld is alive", login_status):
             fp.good_print("Logged in using credentials from debian maintenance account.", option)
@@ -659,7 +658,7 @@ def mysql_setup(option: Option) -> bool:
             mysql_command,
             "--print-defaults"
         )
-        mysql_cli_defaults: str = sbpr.check_output(mysql_defaults_command, universal_newlines=True)
+        mysql_cli_defaults: str = util.get(mysql_defaults_command)
 
         mysql_login: str = f"--defaults-file={option.defaults_file}"
         login_command: typ.Sequence[str] = (
@@ -668,7 +667,7 @@ def mysql_setup(option: Option) -> bool:
             "ping",
             "2>&1"
         )
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
 
         if re.match(r"mysqld is alive", login_status):
             fp.good_print("Logged in using credentials from defaults file account.", option)
@@ -677,17 +676,17 @@ def mysql_setup(option: Option) -> bool:
         # It's not Plesk or debian, we should try a login
         login_command: typ.Sequence[str] = (
             mysqladmin_command,
-            remote_connect,
+            option.remote_connect,
             "ping",
             "2>&1"
         )
         fp.debug_print(" ".join(login_command), option)
 
-        login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+        login_status: str = util.get(login_command)
 
         if re.match(r"mysqld is alive", login_status):
             # Login went just fine
-            mysql_login: str = f" {remote_connect} "
+            mysql_login: str = f" {option.remote_connect} "
 
             # Did this go well because of a .my.cnf file or is there no password set?
             user_path: str = os.environ["HOME"].strip()
@@ -695,6 +694,7 @@ def mysql_setup(option: Option) -> bool:
                 fp.bad_print("Successfully authenticated with no password - SECURITY RISK!", option)
 
             return True
+
         else:
             if option.no_ask:
                 fp.bad_print("Attempted to use login credentials, but they were invalid", option)
@@ -706,7 +706,7 @@ def mysql_setup(option: Option) -> bool:
             else:
                 name: str = input("Please enter your MySQL administrative login: ").strip()
 
-            # If --password is defined no need to ask for password
+            # If --pass is defined no need to ask for password
             if option.password:
                 password: str = option.password.strip()
             else:
@@ -716,7 +716,7 @@ def mysql_setup(option: Option) -> bool:
             if password:
                 mysql_login = " ".join((mysql_login, f"-p'{password}'"))
 
-            mysql_login: str = "".join((mysql_login, remote_connect))
+            mysql_login: str = "".join((mysql_login, option.remote_connect))
 
             login_command: typ.Sequence[str] = (
                 mysqladmin_command,
@@ -725,7 +725,7 @@ def mysql_setup(option: Option) -> bool:
                 "2>&1"
             )
 
-            login_status: str = sbpr.check_output(login_command, universal_newlines=True)
+            login_status: str = util.get(login_command)
 
             if re.match(r"mysqld is alive", login_status):
                 if not password:
