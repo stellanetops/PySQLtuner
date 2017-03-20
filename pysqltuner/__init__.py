@@ -219,7 +219,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     :return typ.Tuple[str, int, str, int, str, int, str]:
     """
     current_os: str = util.get(r"uname").strip()
-    du_flags: str = "-b" if re.match(r"Linux", current_os) else ""
+    # du_flags: str = "-b" if re.match(r"Linux", current_os) else ""
     if option.force_mem is not None and option.force_mem > 0:
         physical_memory: int = option.force_mem * 1024 ** 2
         fp.info_print(f"Assuming {option.force_mem} MB of physical memory", option)
@@ -436,7 +436,7 @@ def mysql_setup(option: Option) -> bool:
     """Sets up options for mysql
 
     :param Option option: options object
-    :return bool: whether setup was success
+    :return bool: whether setup was successful
     """
     if option.mysqladmin:
         mysqladmin_command: str = option.mysqladmin.strip()
@@ -658,7 +658,7 @@ def mysql_setup(option: Option) -> bool:
             mysql_command,
             "--print-defaults"
         )
-        mysql_cli_defaults: str = util.get(mysql_defaults_command)
+        util.run(mysql_defaults_command)
 
         mysql_login: str = f"--defaults-file={option.defaults_file}"
         login_command: typ.Sequence[str] = (
@@ -686,7 +686,7 @@ def mysql_setup(option: Option) -> bool:
 
         if re.match(r"mysqld is alive", login_status):
             # Login went just fine
-            mysql_login: str = f" {option.remote_connect} "
+            # mysql_login: str = f" {option.remote_connect} "
 
             # Did this go well because of a .my.cnf file or is there no password set?
             user_path: str = os.environ["HOME"].strip()
