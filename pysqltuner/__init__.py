@@ -10,6 +10,7 @@ https://github.com/major/MySQLtuner-perl
 
 import getpass
 import os
+import psycopg2
 import re
 import requests as req
 import shutil
@@ -60,6 +61,7 @@ class Option:
         self.mysqlcmd: str = None
         self.do_remote: int = None
         self.remote_connect: str = None
+        self.cve_file: str = None
 
 
 def usage() -> None:
@@ -194,7 +196,7 @@ def other_process_memory() -> int:
         (r"^\s+$", ""),
         (r".*PID.*CMD.*", ""),
         (r".*systemd.*", ""),
-        (r"\s*?(\d+)\s*.*", "\1")
+        (r"\s*?(\d+)\s*.*", r"\1")
     )
 
     filtered_processes: typ.List[str] = []
@@ -738,3 +740,59 @@ def mysql_setup(option: Option) -> bool:
             else:
                 fp.bad_print("Attempted to use login credentials but they were invalid", option)
                 raise ConnectionRefusedError
+
+
+# TODO finish all functions below this comment
+def tuning_info():
+    pass
+
+
+def mysql_status_vars():
+    pass
+
+
+def opened_ports() -> typ.Sequence[str]:
+    """Finds all opened ports
+
+    :return typ.Sequence[str]: array of all opened ports
+    """
+    opened_ports_command: typ.Sequence[str] = (
+        "netstat",
+        "-ltn"
+    )
+    all_opened_ports: str = util.get(opened_ports_command)
+
+    port_filters: typ.Sequence[typ.Tuple[str, str]] = (
+        (r".*:(\d+)\s.*$", r"\1"),
+        (r"\D", "")
+    )
+
+    filtered_ports: typ.Sequence[str] = sorted(
+        re.sub(port_filter, port_replace, open_port)
+        for open_port in all_opened_ports
+        for port_filter, port_replace in port_filters
+    )
+
+    filtered_ports = [
+        filtered_port
+        for filtered_port in filtered_ports
+        if not re.match(r"^$", filtered_port)
+    ]
+
+    # TODO include opened ports in results object
+
+    return filtered_ports
+
+
+def is_open_port(port: str) -> bool:
+    """Finds if port is open
+
+    :param str port: port name
+    :return bool: whether the port specified is open
+    """
+    port_pattern: str = f"^{port}$"
+    return any(re.search(port_pattern, open_port) for open_port in opened_ports())
+
+
+def os_release():
+    pass
