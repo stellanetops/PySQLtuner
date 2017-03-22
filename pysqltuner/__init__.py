@@ -794,5 +794,131 @@ def is_open_port(port: str) -> bool:
     return any(re.search(port_pattern, open_port) for open_port in opened_ports())
 
 
-def os_release():
-    pass
+def os_release() -> str:
+    """Finds OS release
+
+    :return str: returns OS release
+    """
+    release_filters: typ.Sequence[typ.Tuple[str, str]] = (
+        (".*=\"", ""),
+        ("\"$", "")
+    )
+
+    lsb_release_file: str = "/etc/lsb-release"
+    if os.path.isfile(lsb_release_file):
+        with open(lsb_release_file, mode="r", encoding="utf-8") as lrf:
+            info_release: str = lrf.read()
+        os_release_: str = info_release[3]
+
+        for release_filter, release_replace in release_filters:
+            os_release_: str = re.sub(release_filter, release_replace, os_release_)
+
+        return os_release_
+
+    sys_release_file: str = "/etc.system-release"
+    if os.path.isfile(sys_release_file):
+        with open(sys_release_file, mode="r", encoding="utf-8") as srf:
+            info_release: str = srf.read()
+        os_release_: str = info_release[0]
+
+        return os_release_
+
+    os_release_file: str = "/etc/os-release"
+    if os.path.isfile(os_release_file):
+        with open(os_release_file, mode="r", encoding="utf-8") as orf:
+            info_release: str = orf.read()
+        os_release_: str = info_release[0]
+
+        for release_filter, release_replace in release_filters:
+            os_release_: str = re.sub(release_filter, release_replace, os_release_)
+
+        return os_release_
+
+    issue_file: str = "/etc/issue"
+    if os.path.isfile(issue_file):
+        with open(issue_file, mode="r", encoding="utf-8") as isf:
+            info_release: str = isf.read()
+        os_release_: str = info_release[0]
+
+        os_release_: str = re.sub(r"\s+\\n.*", "", os_release_)
+
+        return os_release_
+
+    return "Unknown OS release"
+
+
+def fs_info(option: Option) -> None:
+    """Appends filesystem information to recommendations
+
+    :param Option option: options object
+    :return:
+    """
+    s_info: typ.Sequence[str] = util.get((
+        "df",
+        "-P",
+        "|",
+        "grep",
+        "'%'"
+    )).split("\n")
+
+    i_info: typ.Sequence[str] = util.get((
+        "df",
+        "-Pi",
+        "|",
+        "grep",
+        "'%'"
+    )).split("\n")[1:]
+
+    info_filters: typ.Sequence[typ.Tuple[str, str]] = (
+        (r".*\s(\d+)%\s+(.*)", "\1\t\2")
+    )
+    for info_filter, info_replace in info_filters:
+        s_info: typ.Sequence[str] = tuple(
+            re.sub(info_filter, info_replace, info)
+            for info in s_info
+        )
+
+    for info in s_info:
+        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)"):
+            continue
+        matched = re.match(r"(\d+)\t(.*)")
+        if matched:
+            space_perc: str = matched.group(1)
+            mount_point: str = matched.group(2)
+            if int(matched.group(1)) > 85:
+                fp.bad_print(f"Mount point {mount_point} is using {space_perc} % total space", option)
+                # TODO append to recommendations
+            else:
+                fp.info_print(f"Mount point {mount_point} is using {space_perc} % total space", option)
+
+            # TODO result object assigning
+
+    for info in i_info:
+        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)"):
+            continue
+        matched = re.match(r"(\d+)\t(.*)")
+        if matched:
+            space_perc: str = matched.group(1)
+            mount_point: str = matched.group(2)
+            if int(matched.group(1)) > 85:
+                fp.bad_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", option)
+                # TODO append to recommendations
+            else:
+                fp.info_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", option)
+
+            # TODO result object assigning
+
+
+def is_virtual_machine() -> bool:
+    """Checks if virtual machine
+
+    :return bool: whether it is a virtual machine
+    """
+    is_vm: int = int(util.get((
+        "grep",
+        "-Ec",
+        "'^flags.*\ hypervisor\ '",
+        "/proc/cpuinfo"
+    )))
+    return bool(is_vm)
+
