@@ -23,7 +23,7 @@ def run(command: typ.Sequence) -> str:
     :param typ.Sequence command: input command
     :return:
     """
-    sbpr.run(command, shell=True, encoding="utf-8")
+    sbpr.run(command, shell=True, encoding=u"utf-8")
 
 
 def bytes_to_string(amount: int=0) -> str:
@@ -34,15 +34,15 @@ def bytes_to_string(amount: int=0) -> str:
     :return str: string representation
     """
     unit_name: typ.Sequence[str] = (
-        "B",
-        "KB",
-        "MB",
-        "GB",
-        "TB",
-        "PB",
-        "EB",
-        "ZB",
-        "YB",
+        u"B",
+        u"KB",
+        u"MB",
+        u"GB",
+        u"TB",
+        u"PB",
+        u"EB",
+        u"ZB",
+        u"YB",
     )
 
     index: int = int(math.floor(math.log(amount, 1024)))

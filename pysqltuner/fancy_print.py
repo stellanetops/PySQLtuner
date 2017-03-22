@@ -10,9 +10,9 @@ import pysqltuner.util as util
 
 
 class Color:
-    red: str = "\e[0;31m"
-    green: str = "\e[0;32m"
-    end: str = "\e[0m"
+    red: str = u"\e[0;31m"
+    green: str = u"\e[0;32m"
+    end: str = u"\e[0m"
 
 
 me: str = util.get((r"whoami",))
@@ -20,12 +20,12 @@ opt: tuner.Option = tuner.Option()
 
 
 class LineEdge:
-    good: str = "[\e[0;32mOK\e[0m]" if opt.no_color else "[OK]"
-    bad: str = "[\e[0;31m!!\e[0m]" if opt.no_color else "[!!]"
-    info: str = "[\e[0;34m--\e[0m]" if opt.no_color else "[--]"
-    debug: str = "[\e[0;31mDG\e[0m]" if opt.no_color else "[DG]"
+    good: str = u"[\e[0;32mOK\e[0m]" if opt.no_color else u"[OK]"
+    bad: str = u"[\e[0;31m!!\e[0m]" if opt.no_color else u"[!!]"
+    info: str = u"[\e[0;34m--\e[0m]" if opt.no_color else u"[--]"
+    debug: str = u"[\e[0;31mDG\e[0m]" if opt.no_color else u"[DG]"
     cmd: str = f"\e[1;32m[CMD]({me})" if opt.no_color else f"[CMD]({me})"
-    end: str = "\e[0m" if opt.no_color else ""
+    end: str = u"\e[0m" if opt.no_color else u""
 
 
 def color_wrap(line: str, color: str) -> str:
@@ -35,7 +35,7 @@ def color_wrap(line: str, color: str) -> str:
     :param str color: color format string
     :return str: returns formatted string in input color
     """
-    return "".join((color, line, Color.end))
+    return u"".join((color, line, Color.end))
 
 
 def red_wrap(line: str, option: tuner.Option) -> str:
@@ -72,7 +72,7 @@ def pretty_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not (option.silent or option.json):
-        print(line, "\n")
+        print(line, u"\n")
 
 
 def good_print(line: str, option: tuner.Option) -> None:
@@ -83,7 +83,7 @@ def good_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_good:
-        good_line: str = " ".join((LineEdge.good, line))
+        good_line: str = u" ".join((LineEdge.good, line))
         pretty_print(good_line, option)
 
 
@@ -95,7 +95,7 @@ def bad_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_bad:
-        bad_line: str = " ".join((LineEdge.bad, line))
+        bad_line: str = u" ".join((LineEdge.bad, line))
         pretty_print(bad_line, option)
 
 
@@ -107,7 +107,7 @@ def info_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_info:
-        info_line: str = " ".join((LineEdge.info, line))
+        info_line: str = u" ".join((LineEdge.info, line))
         pretty_print(info_line, option)
 
 
@@ -119,7 +119,7 @@ def debug_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if option.debug:
-        debug_line: str = " ".join((LineEdge.debug, line))
+        debug_line: str = u" ".join((LineEdge.debug, line))
         pretty_print(debug_line, option)
 
 
@@ -130,7 +130,7 @@ def cmd_print(line: str, option: tuner.Option) -> None:
     :param Option option: option object
     :return:
     """
-    cmd_line: str = " ".join((LineEdge.cmd, line))
+    cmd_line: str = u" ".join((LineEdge.cmd, line))
     pretty_print(cmd_line, option)
 
 
@@ -157,7 +157,7 @@ def info_print_cmd(lines: typ.Sequence[str], option: tuner.Option) -> None:
     info_lines: typ.Sequence[str] = [
         line
         for line in lines
-        if line != ""
+        if line != u""
         and not re.match(r"/^\s*$/", line)
     ]
     info_print_ml(info_lines, option)
@@ -174,10 +174,10 @@ def subheader_print(line: str, option: tuner.Option, line_spaces: int=8, line_to
     """
     line_size: int = len(line) + 2
 
-    pretty_print(" ", option)
-    line_start: str = "-" * line_spaces
-    line_end: str = "-" * (line_total - line_size - line_spaces)
-    subheader_line: str = " ".join((line_start, line, line_end))
+    pretty_print(" u", option)
+    line_start: str = u"-" * line_spaces
+    line_end: str = u"-" * (line_total - line_size - line_spaces)
+    subheader_line: str = u" u".join((line_start, line, line_end))
     pretty_print(subheader_line, option)
 
 
