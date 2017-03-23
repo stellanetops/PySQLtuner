@@ -10,7 +10,9 @@ https://github.com/major/MySQLtuner-perl
 
 import getpass
 import os
-import psycopg2
+import platform
+import psutil as psu
+import psycopg2 as psys
 import re
 import requests as req
 import shutil
@@ -879,9 +881,9 @@ def fs_info(option: Option) -> None:
         )
 
     for info in s_info:
-        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)"):
+        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)", info):
             continue
-        matched = re.match(r"(\d+)\t(.*)")
+        matched = re.match(r"(\d+)\t(.*)", info)
         if matched:
             space_perc: str = matched.group(1)
             mount_point: str = matched.group(2)
@@ -923,5 +925,212 @@ def is_virtual_machine() -> bool:
     return bool(is_vm)
 
 
-def info_cmd() -> None:
-    cmd: str = f''
+def info_cmd(command: typ.Sequence[str], option: Option, delimiter: str = u"") -> None:
+    """Runs commands and prints information
+
+    :param typ.Sequence[str] command: sequence of strings which constitute command
+    :param Option option: options object
+    :param str delimiter: delimiter
+    :return:
+    """
+    cmd: str = f"{command}"
+    fp.debug_print(f"CMD: {cmd}", option)
+
+    result: str = tuple(
+            info.strip()
+            for info in util.get(command)
+    )
+    for info in result:
+        fp.info_print(f"{delimiter}{info}", option)
+
+
+def kernel_info(option: Option) -> None:
+    params: typ.Sequence[str] = (
+        u"fs.aio-max-nr",
+        u"fs.aio-nr",
+        u"fs.file-max",
+        u"sunrpc.tcp_fin_timeout",
+        u"sunrpc.tcp_max_slot_table_entries",
+        u"sunrpc.tcp_slot_table_entries",
+        u"vm.swappiness"
+    )
+
+    fp.info_print(u"Information about kernel tuning:", option)
+
+    for param in params:
+        sysctl_devnull_command: typ.Sequence[str] = (
+            u"sysctl",
+            param,
+            u"2>/dev/null"
+        )
+        fp.info_cmd(sysctl_devnull_command, option, delimiter=u"\t")
+        # TODO result setting
+
+    sysctl_swap_command: typ.Sequence[str] = (
+        u"sysctl",
+        u"-n",
+        u"vm.swappiness"
+    )
+    if int(util.get(sysctl_swap_command)) > 10:
+        fp.bad_print(u"Swappiness is > 10, please consider having a value lower than 10", option)
+        # TODO recommendation appending and adjusted variables
+    else:
+        fp.info_print(u"Swappiness is < 10.", option)
+
+    # only if /proc/sys/sunrpc exists
+    slot_table_command: typ.Sequence[str] = (
+        u"sysctl",
+        u"-n",
+        u"sunrpc.tcp_slot_table_entries",
+        u"2>/dev/null"
+    )
+    tcp_slot_entries: str = util.get(slot_table_command)
+
+    if os.path.isfile(u"/proc/sys/sunrpc") and (not tcp_slot_entries or int(tcp_slot_entries) < 100):
+        fp.bad_print("Initial TCP slot entries is < 1M, please consider having a value greater than 100", option)
+        # TODO recommendation appending and adjusting variables
+    else:
+        fp.info_print(u"TCP slot entries is > 100.", option)
+
+    aio_max_command: typ.Sequence[str] = (
+        u"sysctl",
+        u"-n",
+        u"fs.aio-max-nr"
+    )
+    aio_max: str = util.get(aio_max_command)
+
+    if aio_max < 1e6:
+        fp.bad_print(u"Max running total of the number of events is < 1M, please consider having a value greater than 1M", option)
+        # TODO recommendation appending and adjusting variables
+    else:
+        fp.info_print(u"Max Number of AIO events is > 1M.", option)
+
+
+def system_info(option: Option) -> None:
+    # TODO set results object
+    fp.info_print(os_release(), option)
+    if is_virtual_machine():
+        fp.info_print(u"Machine Type:\t\t\t\t\t: Virtual Machine", option)
+        # TODO set results object
+    else:
+        fp.info_print(u"Machine Type:\t\t\t\t\t: Physical Machine", option)
+        # TODO set results object
+
+    # TODO set results object
+
+    connect_command: typ.Sequence[str] = (
+        u"ping",
+        u"-c",
+        u"ipecho.net",
+        u"&>/dev/null"
+    )
+
+    is_connected: bool = True if int(util.get(connect_command)) == 0 else False
+    if is_connected:
+        fp.info_print(u"Internet\t\t\t\t\t: Connected", option)
+        # TODO set results object
+    else:
+
+        fp.bad_print(u"Internet\t\t\t\t\t: Disconnected", option)
+
+    # TODO set several variables in results object
+
+    core_command: typ.Sequence[str] = (
+        u"nproc"
+    )
+    process_amount: int = int(util.get(core_command))
+    fp.info_print(f"Number of Core CPU : {process_amount}", option)
+
+    os_type_command: typ.Sequence[str] = (
+        u"uname",
+        u"-o"
+    )
+    os_type: str = util.get(os_type_command)
+    fp.info_print(f"Operating System Type : {os_type}", option)
+
+    kernel_release_command: typ.Sequence[str] = (
+        u"uname",
+        u"-r"
+    )
+    kernel_release: str = util.get(kernel_release_command)
+    fp.info_print(f"Kernel Release : {os_type}", option)
+
+    hostname_command: typ.Sequence[str] = (
+        u"hostname"
+    )
+    hostname: str = util.get(hostname_command)
+    fp.info_print(f"Hostname\t\t\t\t: {hostname}", option)
+
+    ip_command: typ.Sequence[str] = (
+        u"hostname",
+        u"-I"
+    )
+    ip: str = util.get(ip_command)
+    fp.info_print(f"Internal IP\t\t\t\t: {ip}", option)
+
+    network_card_command: typ.Sequence[str] = (
+        u"ifconfig",
+        u"|",
+        u"grep",
+        u"-A1",
+        u"mtu"
+    )
+    fp.info_print(u"Network Cards\t\t\t: ", option)
+    info_cmd(network_card_command, option, delimiter=u"\t")
+
+    try:
+        external_ip: str = req.get(u"ipecho.net/plain")
+        fp.info_print(f"External IP\t\t\t\t: {external_ip}", option)
+    except req.exceptions.MissingSchema as err:
+        fp.bad_print(f"External IP\t\t\t\t: Can't check because of Internet connectivity", option)
+
+    name_server_command: typ.Sequence[str] = (
+        u"grep",
+        u"'nameserver'",
+        u"/etc/resolv.conf",
+        u"\|",
+        u"awk",
+        u"'{print \$2}'"
+    )
+    name_servers: str = util.get(name_server_command)
+    fp.info_print(f"Name Servers\t\t\t\t: {name_servers}", option)
+
+    fp.info_print(u"Logged in Users\t\t\t\t:", option)
+    logged_user_command: typ.Sequence[str] = (
+        "who"
+    )
+    info_cmd(logged_user_command, option, delimiter=u"\t")
+    logged_users = util.get(logged_user_command)
+
+    ram_command: typ.Sequence[str] = (
+        u"free",
+        u"-m",
+        u"|",
+        u"grep",
+        u"-v",
+        u"+"
+    )
+    ram: str = util.get(ram_command)
+    fp.info_print(f"Ram Usages in Mb\t\t: {ram}", option)
+
+    load_command: typ.Sequence[str] = (
+        u"top",
+        u"-n",
+        u"1",
+        u"-b"
+        u"|",
+        u"grep",
+        u"'load average:'"
+    )
+    load_average: str = util.get(load_command)
+
+def system_recommendations(option: Option) -> None
+    if not option.sys_stat:
+        return None
+
+    os_name: str = platform.system()
+    if not re.match(r"Linux", os_name, re.IGNORECASE):
+        fp.info_print(u"Skipped due to non Linux Server", option)
+        return None
+
+    fp.pretty_print(u"Look for related Linux system recommendations", option)
