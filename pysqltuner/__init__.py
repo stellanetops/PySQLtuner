@@ -45,7 +45,7 @@ class Option:
         self.buffers: bool = False
         self.password_file: str = None
         self.banned_ports: typ.Sequence[int] = None
-        self.max_port_allowed: int = None
+        self.max_port_allowed: int = 0
         self.output_file: str = None
         self.db_stat: bool = False
         self.idx_stat: bool = False
@@ -103,16 +103,16 @@ def usage() -> None:
         u"      --force-swap <size>   Amount of swap memory configured in megabytes",
         u"      --password-file <path>Path to a password file list(one password by line)",
         u"   Output Options:",
-        u"      --silent     Don't output anything on screen",
-        u"      --no-good     Remove OK responses",
-        u"      --no-bad      Remove negative/suggestion responses",
-        u"      --no-info     Remove informational responses",
-        u"      --debug      Print debug information",
-        u"      --db-stat     Print database information",
-        u"      --idx-stat    Print index information",
-        u"      --sys-stat    Print system information",
-        u"      --pf-stat     Print Performance schema information",
-        u"      --banned-portsPorts banned separated by comma(,)",
+        u"      --silent       Don't output anything on screen",
+        u"      --no-good      Remove OK responses",
+        u"      --no-bad       Remove negative/suggestion responses",
+        u"      --no-info      Remove informational responses",
+        u"      --debug        Print debug information",
+        u"      --db-stat      Print database information",
+        u"      --idx-stat     Print index information",
+        u"      --sys-stat     Print system information",
+        u"      --pf-stat      Print Performance schema information",
+        u"      --banned-ports Ports banned separated by comma(,)",
         u"      --max-port-allowed     Number of ports opened allowed on this hosts",
         u"      --cve-file    CVE File for vulnerability checks",
         u"      --nocolor    Don't print output in color",
@@ -1124,7 +1124,15 @@ def system_info(option: Option) -> None:
     )
     load_average: str = util.get(load_command)
 
-def system_recommendations(option: Option) -> None
+
+def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str], option: Option) -> None:
+    """Generates system level recommendations
+
+    :param int physical_memory: amount of physical memory in bytes
+    :param typ.Sequence[str] banned_ports: sequence of banned ports
+    :param Option option: options object
+    :return:
+    """
     if not option.sys_stat:
         return None
 
@@ -1134,3 +1142,54 @@ def system_recommendations(option: Option) -> None
         return None
 
     fp.pretty_print(u"Look for related Linux system recommendations", option)
+
+    system_info(option)
+    other_proc_mem: int = other_process_memory()
+
+    fp.info_print(f"User process except mysqld used {util.bytes_to_string(other_proc_mem)} RAM", option)
+
+    if 0.15 * physical_memory < other_proc_mem:
+        fp.bad_print((
+            u"Other user process except mysqld used more than 15% of total physical memory "
+            f"{util.percentage(other_proc_mem, physical_memory)}% "
+            f"({util.bytes_to_string(other_proc_mem)} / {util.bytes_to_string(physical_memory)})"
+        ), option)
+        # TODO recommendations and adjusted variables
+    else:
+        fp.info_print((
+            u"Other user process except mysqld used more than 15% of total physical memory "
+            f"{util.percentage(other_proc_mem, physical_memory)}% "
+            f"({util.bytes_to_string(other_proc_mem)} / {util.bytes_to_string(physical_memory)})"
+        ), option)
+
+    if option.max_port_allowed > 0:
+        open_ports: typ.Sequence[str] = opened_ports()
+        fp.info_print(f"There are {len(open_ports)} listening port(s) on this server", option)
+
+        if len(open_ports) > option.max_port_allowed:
+            fp.bad_print((
+                f"There are too many listening ports: "
+                f"{len(open_ports)} opened > {option.max_port_allowed} allowed"
+            ), option)
+            # TODO recommendations
+        else:
+            fp.info_print(f"There are less than {option.max_port_allowed} opened ports on this server", option)
+
+    for banned_port in banned_ports:
+        if is_open_port(banned_port):
+            fp.bad_print(f"Banned port: {banned_port} is opened.", option)
+            # TODO recommendations
+        else:
+            fp.good_print(f"{banned_port} is not opened.", option)
+
+    fs_info(option)
+    kernel_info(option)
+
+
+def security_recommendations(option: Option) -> None:
+    fp.subheader_print(u"Security Recommendations", option)
+    if option.skip_password:
+        fp.info_print(u"Skipped due to --skip-password option", option)
+        return None
+
+    pass_column: str = u"password"
