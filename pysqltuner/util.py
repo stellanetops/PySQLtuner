@@ -2,10 +2,14 @@
 Utilities module for random functions
 """
 
+import collections as clct
+import contextlib as ctxt
 import math
 import re
+import sqlalchemy.orm as orm
 import subprocess as sbpr
 import typing as typ
+import yaml
 
 
 def get(command: typ.Sequence) -> str:
@@ -17,7 +21,7 @@ def get(command: typ.Sequence) -> str:
     return str(sbpr.check_output(command, shell=True, universal_newlines=True).strip(), encoding="utf-8")
 
 
-def run(command: typ.Sequence) -> str:
+def run(command: typ.Sequence) -> None:
     """Runs command
 
     :param typ.Sequence command: input command
@@ -113,3 +117,39 @@ def pretty_uptime(uptime: int) -> str:
         hf_uptime: str = f"{seconds}s"
 
     return hf_uptime
+
+
+def connection_params(config_file: str=None,
+                      host: str=None, username: str=None, password: str=None,
+                      database: str= None) -> typ.Dict[str, str]:
+    parsed_config: typ.Dict[str, typ.Any] = yaml.load(config_file)
+    Config = clct.namedtuple("Config", parsed_config.keys())
+    config: Config = Config(*parsed_config)
+    return {
+        "drivername": "mysql+mysqldb",
+        "host": host or config.host,
+        "username": username or config.username,
+        "password": password or config.password,
+        "database": database or config.database,
+        "port": 3306
+    }
+
+
+@ctxt.contextmanager
+def session_scope(engine):
+    """Session generator for databases
+
+    :param object engine: engine object
+
+    :yield: session object
+    """
+    get_session = orm.scoped_session(orm.sessionmaker(bind=engine))
+    session = get_session()
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()

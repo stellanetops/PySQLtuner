@@ -8,14 +8,18 @@ Inspired by Major Hayden's MySQLtuner-perl project:
 https://github.com/major/MySQLtuner-perl
 """
 
+import collections as clct
 import getpass
 import os
 import platform
 import psutil as psu
-import psycopg2 as psys
+import psycopg2 as psy
+import pymysql as sql
 import re
 import requests as req
 import shutil
+import sqlalchemy as sqla
+import sqlalchemy.orm as orm
 import typing as typ
 import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
@@ -898,7 +902,7 @@ def fs_info(option: Option) -> None:
     for info in i_info:
         if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)"):
             continue
-        matched = re.match(r"(\d+)\t(.*)")
+        matched = re.match(r"(\d+)\t(.*)", info)
         if matched:
             space_perc: str = matched.group(1)
             mount_point: str = matched.group(2)
@@ -1193,3 +1197,25 @@ def security_recommendations(option: Option) -> None:
         return None
 
     pass_column: str = u"password"
+    # TODO need mysql version
+
+    # Looking for Anonymous users
+    mysql_stat_query: str = "\n".join((
+        u"SELECT",
+        u"CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+        u"FROM",
+        u"`mysql`.`user` AS `usr`",
+        u"WHERE",
+        u"TRIM(`usr`.`USER`) = ''",
+        u"OR",
+        u"`usr`.`USER` IS NULL;"
+    ))
+    connect_params: typ.Dict[str, str] = util.connection_params()
+    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+    with util.session_scope(engine) as sess:
+        result = sess.execute(mysql_stat_query)
+        Stat = clct.namedtuple(u"Stat", result.keys())
+        stats: typ.Sequence[Stat] = [Stat(*stat).GRANTEE for stat in result.fetchall()]
+
+    fp.debug_print(f"{stats}", option)
+
