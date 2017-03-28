@@ -66,6 +66,9 @@ class Option:
         self.do_remote: int = None
         self.remote_connect: str = None
         self.cve_file: str = None
+        self.ver_major: int = 0
+        self.ver_minor: int = 0
+        self.ver_micro: int = 0
 
 
 def usage() -> None:
@@ -550,7 +553,7 @@ def mysql_setup(option: Option) -> bool:
                 fp.good_print(u"Logged in using credentials passed from mysql-quickbackup", option)
                 return True
             else:
-                fp.bad_print(u"Attempted to use login credentials from mysql-quickbackup, but they were invalid", option)
+                fp.bad_print(u"Attempted to use login credentials from mysql-quickbackup, they were invalid", option)
                 raise ConnectionRefusedError
 
     elif is_readable(u"/etc/psa/.psa.shadow") and not option.do_remote:
@@ -898,7 +901,7 @@ def fs_info(option: Option) -> None:
             # TODO result object assigning
 
     for info in i_info:
-        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)"):
+        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)", info):
             continue
         matched = re.match(r"(\d+)\t(.*)", info)
         if matched:
@@ -965,7 +968,7 @@ def kernel_info(option: Option) -> None:
             param,
             u"2>/dev/null"
         )
-        fp.info_cmd(sysctl_devnull_command, option, delimiter=u"\t")
+        info_cmd(sysctl_devnull_command, option, delimiter=u"\t")
         # TODO result setting
 
     sysctl_swap_command: typ.Sequence[str] = (
@@ -1002,7 +1005,10 @@ def kernel_info(option: Option) -> None:
     aio_max: str = util.get(aio_max_command)
 
     if aio_max < 1e6:
-        fp.bad_print(u"Max running total of the number of events is < 1M, please consider having a value greater than 1M", option)
+        fp.bad_print((
+                u"Max running total of the number of events is < 1M,"
+                u"please consider having a value greater than 1M"
+        ), option)
         # TODO recommendation appending and adjusting variables
     else:
         fp.info_print(u"Max Number of AIO events is > 1M.", option)
@@ -1085,6 +1091,7 @@ def system_info(option: Option) -> None:
         fp.info_print(f"External IP\t\t\t\t: {external_ip}", option)
     except req.exceptions.MissingSchema as err:
         fp.bad_print(f"External IP\t\t\t\t: Can't check because of Internet connectivity", option)
+        raise err
 
     name_server_command: typ.Sequence[str] = (
         u"grep",
@@ -1188,17 +1195,46 @@ def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str]
     kernel_info(option)
 
 
+def mysql_version() -> typ.Tuple[int, int, int]:
+    """Finds version of mysql being used
+
+    :return typ.Tuple[int, int, int]: major, minor, and micro version numbers
+    """
+    version_query: str = u"\n".join((
+        u"SELECT",
+        u"@@VERSION AS `VERSION`",
+    ))
+    connect_params: typ.Dict[str, str] = util.connection_params()
+    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+    with util.session_scope(engine) as sess:
+        result = sess.execute(version_query)
+        Version = clct.namedtuple(u"Version", result.keys())
+        versions: typ.Sequence[Version] = [
+            Version(*version).VERSION.split("-")[0].split(".")
+            for version in result.fetchall()
+        ]
+        ver_major, ver_minor, ver_micro = [int(version) for version in versions[0]]
+
+    return ver_major, ver_minor, ver_micro
+
+
 def security_recommendations(option: Option) -> None:
+    ver_major, ver_minor, ver_micro = mysql_version()
+
+    connect_params: typ.Dict[str, str] = util.connection_params()
+    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+
     fp.subheader_print(u"Security Recommendations", option)
     if option.skip_password:
         fp.info_print(u"Skipped due to --skip-password option", option)
         return None
 
-    pass_column: str = u"password"
-    # TODO need mysql version
+    password_column: str = u"password"
+    if (ver_major, ver_minor) >= (5, 7):
+        password_column = u"authentication_string"
 
     # Looking for Anonymous users
-    mysql_user_query: str = "\n".join((
+    mysql_user_query: str = u"\n".join((
         u"SELECT",
         u"CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
         u"FROM",
@@ -1208,8 +1244,6 @@ def security_recommendations(option: Option) -> None:
         u"OR",
         u"`usr`.`USER` IS NULL;"
     ))
-    connect_params: typ.Dict[str, str] = util.connection_params()
-    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
     with util.session_scope(engine) as sess:
         result = sess.execute(mysql_user_query)
         User = clct.namedtuple(u"User", result.keys())
@@ -1223,4 +1257,70 @@ def security_recommendations(option: Option) -> None:
         # TODO recommendation
     else:
         fp.good_print(u"There are no anonymous accounts for any database users", option)
-        # TODO mysql version check
+        if (ver_major, ver_minor, ver_micro) <= (5, 1):
+            fp.bad_print(u"No more password checks for MySQL <= 5.1", option)
+            fp.bad_print(u"MySQL version <= 5.1 are deprecated and are at end of support", option)
+            return None
+
+    # Looking for Empty Password
+    if (ver_major, ver_minor, ver_micro) >= (5, 5):
+        mysql_password_query: str = u"\n".join((
+            u"SELECT",
+            u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+            u"FROM",
+            u"  `mysql`.`user` AS `usr`",
+            u"WHERE",
+            f"    `{password_column}` = ''",
+            u"  OR",
+            f"    `{password_column}` IS NULL",
+            u"  AND",
+            u"    `PLUGIN` NOT IN (",
+            u"        'unix_socket',",
+            u"        'win_socket'",
+            u"     );"
+        ))
+    else:
+        mysql_password_query: str = u"\n".join((
+            u"SELECT",
+            u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+            u"FROM",
+            u"  `mysql`.`user` AS `usr`",
+            u"WHERE",
+            f"    `{password_column}` = ''",
+            u"  OR",
+            f"    `{password_column}` IS NULL;"
+        ))
+
+    with util.session_scope(engine) as sess:
+        result = sess.execute(mysql_password_query)
+        Password = clct.namedtuple(u"Password", result.keys())
+        passwords: typ.Sequence[Password] = [Password(*password).GRANTEE for password in result.fetchall()]
+
+    if passwords:
+        for user in passwords:
+            fp.bad_print(f"User '{user}' has no password set.", option)
+            # TODO recommendations
+    else:
+        fp.good_print(u"All database users have passwords assigned", option)
+
+    if (ver_major, ver_minor, ver_micro) >= (5, 7):
+        mysql_plugin_query: str = u"\n".join((
+            u"SELECT",
+            u"  COUNT(*) AS `COUNT`",
+            u"FROM",
+            u"  `information_schema`.`PLUGINS`",
+            u"WHERE",
+            f"    `PLUGIN_NAME` = 'validate_password'",
+            u"  AND",
+            f"    `PLUGIN_STATUS` = 'ACTIVE';"
+        ))
+        with util.session_scope(engine) as sess:
+            result = sess.execute(mysql_plugin_query)
+            Plugin = clct.namedtuple(u"Plugin", result.keys())
+            plugin_amount: typ.Sequence[Plugin] = int(*[Plugin(*plugin).COUNT for plugin in result.fetchall()])
+
+        if plugin_amount >= 1:
+            fp.info_print(u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated", option)
+            return None
+
+    # Looking for User with user/ uppercase /capitalise user as password
