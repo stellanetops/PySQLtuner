@@ -13,8 +13,6 @@ import getpass
 import os
 import platform
 import psutil as psu
-import psycopg2 as psy
-import pymysql as sql
 import re
 import requests as req
 import shutil
@@ -1200,7 +1198,7 @@ def security_recommendations(option: Option) -> None:
     # TODO need mysql version
 
     # Looking for Anonymous users
-    mysql_stat_query: str = "\n".join((
+    mysql_user_query: str = "\n".join((
         u"SELECT",
         u"CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
         u"FROM",
@@ -1213,9 +1211,16 @@ def security_recommendations(option: Option) -> None:
     connect_params: typ.Dict[str, str] = util.connection_params()
     engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
     with util.session_scope(engine) as sess:
-        result = sess.execute(mysql_stat_query)
-        Stat = clct.namedtuple(u"Stat", result.keys())
-        stats: typ.Sequence[Stat] = [Stat(*stat).GRANTEE for stat in result.fetchall()]
+        result = sess.execute(mysql_user_query)
+        User = clct.namedtuple(u"User", result.keys())
+        users: typ.Sequence[User] = [User(*user).GRANTEE for user in result.fetchall()]
 
-    fp.debug_print(f"{stats}", option)
+    fp.debug_print(f"{users}", option)
 
+    if users:
+        for user in sorted(users):
+            fp.bad_print(f"User '{user}' is an anonymous account.", option)
+        # TODO recommendation
+    else:
+        fp.good_print(u"There are no anonymous accounts for any database users", option)
+        # TODO mysql version check
