@@ -63,7 +63,7 @@ class Option:
         self.defaults_file: str = None
         self.mysqladmin: str = None
         self.mysqlcmd: str = None
-        self.do_remote: int = None
+        self.do_remote: bool = False
         self.remote_connect: str = None
         self.cve_file: str = None
         self.basic_passwords_file: str = None
@@ -501,7 +501,7 @@ def mysql_setup(option: Option) -> bool:
         option.remote_connect: str = f"-h {option.host} -P {option.port}"
 
         if option.host not in (u"127.0.0.1", u"localhost"):
-            option.do_remote: int = 1
+            option.do_remote: bool = True
 
     if option.user and option.password:
         mysql_login: str = f"-u {option.user} {option.remote_connect}"
@@ -755,8 +755,23 @@ def tuning_info():
     pass
 
 
-def mysql_status_vars():
-    pass
+def mysql_status_vars(option: Option) -> None:
+    """Gathers all status variables
+
+    :param option:
+    :return:
+    """
+    # We need to initiate at least one query so that our data is usable
+    try:
+        connect_params: typ.Dict[str, str] = util.connection_params()
+        engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+        with util.session_scope(engine) as sess:
+            sess.execute(u"SELECT VERSION()")
+    except Exception:
+        fp.bad_print(u"Not enough privileges for running PySQLTuner", option)
+        raise
+
+    # TODO set variables
 
 
 def opened_ports() -> typ.Sequence[str]:
@@ -1302,7 +1317,7 @@ def security_recommendations(option: Option) -> None:
         Password = clct.namedtuple(u"Password", result.keys())
         password_users: typ.Sequence[Password] = [Password(*password).GRANTEE for password in result.fetchall()]
 
-    if password_user:
+    if password_users:
         for user in password_users:
             fp.bad_print(f"User '{user}' has no password set.", option)
             # TODO recommendations
@@ -1385,7 +1400,7 @@ def security_recommendations(option: Option) -> None:
     if passwords:
         interpass_amount = 0
         for password in passwords:
-            interpass += 1
+            interpass_amount += 1
 
             # Looking for User with user/ uppercase /capitalise user as password
             mysql_capital_password_query: str = u"\n".join((
@@ -1423,6 +1438,59 @@ def security_recommendations(option: Option) -> None:
         pass
 
 
-def replication_status() -> None:
-    pass
+def replication_status(option: Option) -> None:
+    fp.subheader_print(u"Replication Metrics", option)
+    # TODO get info from variable gathering function
+    #fp.info_print(f"Galera Synchronous replication {option.}", option)
 
+
+def validate_mysql_version(option: Option) -> None:
+    """Check MySQL Version
+
+    :param Option option: option object
+    :return:
+    """
+    ver_major, ver_minor, ver_micro = mysql_version()
+    full_version: str = f"{ver_major}.{ver_minor}.{ver_micro}"
+
+    if not (ver_major, ver_major, ver_micro) >= (5, 1):
+        fp.bad_print(f"Your MySQL version {full_version} is EOL software! Upgrade soon!", option)
+    elif (6 <= ver_major <= 9) or ver_major >= 12:
+        fp.bad_print(f"Currently running unsupported MySQL version {full_version}", option)
+    else:
+        fp.good_print(f"Currently running supported MySQL version {full_version}", option)
+
+
+def check_architecture(option: Option, physical_memory: int) -> None:
+    """Checks architecture of system
+
+    :param Option option: options object
+    :param int physical_memory: Physical memory in bytes
+    :return:
+    """
+    # Checks for 32-bit boxes with more than 2GB of RAM
+    if option.do_remote:
+        return None
+    os_name: str = platform.system()
+    bit: str = platform.architecture()[0]
+    if (u"SunOS" in os_name and "64" in bit) or \
+       (u"SunOS" not in os_name and "64" in bit) or \
+       (u"AIX" in os_name and "64" in bit) or \
+       (any(uname in os_name for uname in (u"AIX", u"OpenBSD")) and "64" in bit) or \
+       (u"FreeBSD" in os_name and "64" in bit) or \
+       (u"Darwin" in os_name and "Power Macintosh" in bit) or \
+       (u"Darwin" in os_name and "x86_64" in bit):
+        arch: int = 64
+        fp.good_print("Operating on 64-bit architecture", option)
+    else:
+        arch: int = 32
+        if physical_memory > 2 ** 31:
+            fp.bad_print(u"Switch to 64-bit OS - MySQL cannot currently use all of your RAM", option)
+        else:
+            fp.good_print(u"Operating on a 32-bit architecture with less than 2GB RAM", option)
+
+        # TODO set architecture
+
+
+def check_storage_engines(option: Option) -> None:
+    pass
