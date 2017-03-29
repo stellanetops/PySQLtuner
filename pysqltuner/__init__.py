@@ -66,6 +66,7 @@ class Option:
         self.do_remote: int = None
         self.remote_connect: str = None
         self.cve_file: str = None
+        self.basic_passwords_file: str = None
         self.ver_major: int = 0
         self.ver_minor: int = 0
         self.ver_micro: int = 0
@@ -1219,6 +1220,11 @@ def mysql_version() -> typ.Tuple[int, int, int]:
 
 
 def security_recommendations(option: Option) -> None:
+    """Security Recommendations
+
+    :param Option option: options object
+    :return:
+    """
     ver_major, ver_minor, ver_micro = mysql_version()
 
     connect_params: typ.Dict[str, str] = util.connection_params()
@@ -1294,10 +1300,10 @@ def security_recommendations(option: Option) -> None:
     with util.session_scope(engine) as sess:
         result = sess.execute(mysql_password_query)
         Password = clct.namedtuple(u"Password", result.keys())
-        passwords: typ.Sequence[Password] = [Password(*password).GRANTEE for password in result.fetchall()]
+        password_users: typ.Sequence[Password] = [Password(*password).GRANTEE for password in result.fetchall()]
 
-    if passwords:
-        for user in passwords:
+    if password_user:
+        for user in password_users:
             fp.bad_print(f"User '{user}' has no password set.", option)
             # TODO recommendations
     else:
@@ -1324,3 +1330,99 @@ def security_recommendations(option: Option) -> None:
             return None
 
     # Looking for User with user/ uppercase /capitalise user as password
+    mysql_capitalize_query: str = u"\n".join((
+        u"SELECT",
+        u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+        u"FROM",
+        u"  `mysql`.`user` AS `usr`",
+        u"WHERE",
+        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(`usr`.`USER`)",
+        u"  OR",
+        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(UPPER(`usr`.`USER`))",
+        u"  OR",
+        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(",
+        u"      CONCAT(UPPER(LEFT(`usr`.`USER`, 1)), SUBSTRING(`usr`.`USER`, 2, LENGTH(`usr`.`USER`)))",
+        u"    );"
+    ))
+    with util.session_scope(engine) as sess:
+        result = sess.execute(mysql_capitalize_query)
+        Capitalize = clct.namedtuple(u"Capitalize", result.keys())
+        capitalize_users: typ.Sequence[Capitalize] = [Capitalize(*user).GRANTEE for user in result.fetchall()]
+
+    if capitalize_users:
+        for user in capitalize_users:
+            fp.bad_print(f"User '{user}' has user name as password", option)
+        # TODO recommendations
+
+    mysql_host_query: str = u"\n".join((
+        u"SELECT",
+        u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+        u"FROM",
+        u"  `mysql`.`user` AS `usr`",
+        u"WHERE",
+        f"    `usr`.`HOST` = '%';"
+    ))
+    with util.session_scope(engine) as sess:
+        result = sess.execute(mysql_host_query)
+        Host = clct.namedtuple(u"Host", result.keys())
+        host_users: typ.Sequence[Host] = [Host(*user).GRANTEE for user in result.fetchall()]
+
+    if host_users:
+        for user in host_users:
+            fp.bad_print(f"User '{user}' does not have specific host restrictions.", option)
+        # TODO recommendations
+
+    if os.path.isfile(option.basic_passwords_file):
+        fp.bad_print(u"There is no basic password file list!", option)
+        return None
+
+    with open(option.basic_passwords_file, mode=u"r", encoding=u"utf-8") as bpf:
+        passwords: typ.Sequence[str] = bpf.readlines()
+
+    fp.info_print(f"There are {len(passwords)} basic passwords in the list", option)
+    bad_amount: int = 0
+
+    if passwords:
+        interpass_amount = 0
+        for password in passwords:
+            interpass += 1
+
+            # Looking for User with user/ uppercase /capitalise user as password
+            mysql_capital_password_query: str = u"\n".join((
+                u"SELECT",
+                u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
+                u"FROM",
+                u"  `mysql`.`user` AS `usr`",
+                u"WHERE",
+                f"    {password_column}` = PASSWORD({password})",
+                u"  OR",
+                f"    `{password_column}` = PASSWORD(UPPER({password}))",
+                u"  OR",
+                f"    `{password_column}` = PASSWORD(",
+                f"      CONCAT(UPPER(LEFT({password}, 1)), SUBSTRING({password}, 2, LENGTH({password})))",
+                u"    );"
+            ))
+            with util.session_scope(engine) as sess:
+                result = sess.execute(mysql_capital_password_query)
+                CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
+                capital_password_users: typ.Sequence[CapitalPassword] = [CapitalPassword(*user).GRANTEE for user in result.fetchall()]
+
+            fp.debug_print(f"There are {len(capital_password_users)} items.", option)
+            if capital_password_users:
+                for user in capital_password_users:
+                    fp.bad_print((
+                        f"User '{user}' is using weak password: "
+                        f"{password} in a lower, upper, or capitalized derivative version."
+                    ), option)
+                    bad_amount += 1
+                    # TODO recommendations
+            if interpass_amount % 1000 == 0:
+                fp.debug_print(f"{interpass_amount} / {len(passwords)}", option)
+    if bad_amount > 0:
+        # TODO recommendation
+        pass
+
+
+def replication_status() -> None:
+    pass
+
