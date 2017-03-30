@@ -1225,11 +1225,14 @@ def mysql_version() -> typ.Tuple[int, int, int]:
     with util.session_scope(engine) as sess:
         result = sess.execute(version_query)
         Version = clct.namedtuple(u"Version", result.keys())
-        versions: typ.Sequence[Version] = [
+        versions: typ.Sequence[str] = [
             Version(*version).VERSION.split("-")[0].split(".")
             for version in result.fetchall()
         ]
-        ver_major, ver_minor, ver_micro = [int(version) for version in versions[0]]
+        ver_major, ver_minor, ver_micro = [
+            int(version)
+            for version in versions[0]
+        ]
 
     return ver_major, ver_minor, ver_micro
 
@@ -1268,7 +1271,10 @@ def security_recommendations(option: Option) -> None:
     with util.session_scope(engine) as sess:
         result = sess.execute(mysql_user_query)
         User = clct.namedtuple(u"User", result.keys())
-        users: typ.Sequence[User] = [User(*user).GRANTEE for user in result.fetchall()]
+        users: typ.Sequence[str] = [
+            User(*user).GRANTEE
+            for user in result.fetchall()
+        ]
 
     fp.debug_print(f"{users}", option)
 
@@ -1315,7 +1321,10 @@ def security_recommendations(option: Option) -> None:
     with util.session_scope(engine) as sess:
         result = sess.execute(mysql_password_query)
         Password = clct.namedtuple(u"Password", result.keys())
-        password_users: typ.Sequence[Password] = [Password(*password).GRANTEE for password in result.fetchall()]
+        password_users: typ.Sequence[str] = [
+            Password(*password).GRANTEE
+            for password in result.fetchall()
+        ]
 
     if password_users:
         for user in password_users:
@@ -1338,7 +1347,10 @@ def security_recommendations(option: Option) -> None:
         with util.session_scope(engine) as sess:
             result = sess.execute(mysql_plugin_query)
             Plugin = clct.namedtuple(u"Plugin", result.keys())
-            plugin_amount: typ.Sequence[Plugin] = int(*[Plugin(*plugin).COUNT for plugin in result.fetchall()])
+            plugin_amount: typ.Sequence[int] = int(*[
+                Plugin(*plugin).COUNT
+                for plugin in result.fetchall()
+            ])
 
         if plugin_amount >= 1:
             fp.info_print(u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated", option)
@@ -1380,7 +1392,10 @@ def security_recommendations(option: Option) -> None:
     with util.session_scope(engine) as sess:
         result = sess.execute(mysql_host_query)
         Host = clct.namedtuple(u"Host", result.keys())
-        host_users: typ.Sequence[Host] = [Host(*user).GRANTEE for user in result.fetchall()]
+        host_users: typ.Sequence[str] = [
+            Host(*user).GRANTEE
+            for user in result.fetchall()
+        ]
 
     if host_users:
         for user in host_users:
@@ -1420,7 +1435,10 @@ def security_recommendations(option: Option) -> None:
             with util.session_scope(engine) as sess:
                 result = sess.execute(mysql_capital_password_query)
                 CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
-                capital_password_users: typ.Sequence[CapitalPassword] = [CapitalPassword(*user).GRANTEE for user in result.fetchall()]
+                capital_password_users: typ.Sequence[str] = [
+                    CapitalPassword(*user).GRANTEE
+                    for user in result.fetchall()
+                ]
 
             fp.debug_print(f"There are {len(capital_password_users)} items.", option)
             if capital_password_users:
@@ -1493,4 +1511,169 @@ def check_architecture(option: Option, physical_memory: int) -> None:
 
 
 def check_storage_engines(option: Option) -> None:
+    fp.subheader_print(u"Storage Engine Statistics", option)
+    if option.skip_size:
+        fp.info_print(u"Skipped due to --skip-size option", option)
+        return
+
+    ver_major, ver_minor, ver_micro = mysql_version()
+    connect_params: typ.Dict[str, str] = util.connection_params()
+    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+
+    engines: str = ""
+    if (ver_major, ver_minor, ver_micro) >= (5, 5):
+        engine_query: str = "\n".join((
+            u"SELECT",
+            u"  `eng`.`ENGINE`,",
+            u"  `eng`.`SUPPORT`",
+            u"FROM",
+            u"`information_schema`.`ENGINES` AS `eng`",
+            u"ORDER BY",
+            u"  `eng`.`ENGINE` ASC;"
+        ))
+        with util.session_scope(engine) as sess:
+            result = sess.execute(engine_query)
+            Engine = clct.namedtuple(u"Engine", result.keys())
+            engine_supports: typ.Sequence[str, str] = [
+                (engine.ENGINE, engine.SUPPORT)
+                for engine in [
+                    Engine(*engine)
+                    for engine in result.fetchall()
+                ]
+            ]
+        for engine, support in engine_supports:
+            if engine.strip() and support.strip():
+                # TODO set result variable
+                if support in (u"YES", u"ENABLES"):
+                    engine_part: str = fp.green_wrap(f"+{engine} ", option)
+                else:
+                    engine_part: str = fp.red_wrap(f"+{engine} ", option)
+                engines += engine_part
+    elif (ver_major, ver_minor, ver_micro) >= (5, 1, 5):
+        engine_query: str = "\n".join((
+            u"SELECT",
+            u"  `eng`.`ENGINE`,",
+            u"  `eng`.`SUPPORT`",
+            u"FROM",
+            u"`information_schema`.`ENGINES` AS `eng`",
+            u"WHERE",
+            u"  `eng`.`ENGINE` NOT IN (",
+            u"      'performance_schema',",
+            u"      'MyISAM',",
+            u"      'MERGE',",
+            u"      'MEMORY'",
+            u"  )",
+            u"ORDER BY",
+            u"  `eng`.`ENGINE` ASC;"
+        ))
+        with util.session_scope(engine) as sess:
+            result = sess.execute(engine_query)
+            Engine = clct.namedtuple(u"Engine", result.keys())
+            engine_supports: typ.Sequence[str, str] = [
+                (engine.ENGINE, engine.SUPPORT)
+                for engine in [
+                    Engine(*engine)
+                    for engine in result.fetchall()
+                ]
+            ]
+        for engine, support in engine_supports:
+            if engine.strip() and support.strip():
+                # TODO set result variable
+                if support in (u"YES", u"ENABLES"):
+                    engine_part: str = fp.green_wrap(f"+{engine} ", option)
+                else:
+                    engine_part: str = fp.red_wrap(f"+{engine} ", option)
+                engines += engine_part
+    else:
+        # TODO need variable object to pick which parts to print
+        pass
+
+    database_query: str = "SHOW DATABASES;"
+    with util.session_scope(engine) as sess:
+        result = sess.execute(database_query)
+        Database = clct.namedtuple(u"Database", result.keys())
+        databases: typ.Sequence[str] = [
+            Database(*database).Database
+            for database in result.fetchall()
+        ]
+    # TODO set result variable
+
+    fp.info_print(f"Status {engines}", option)
+
+    if (ver_major, ver_minor, ver_micro) >= (5, 1, 5):
+        # MySQL 5 servers can have table sizes calculated quickly from information schema
+        engine_query: str = "\n".join((
+            u"SELECT",
+            u"  `tbl`.`ENGINE` AS `ENGINE`,",
+            u"  SUM(`tbl`.`DATA_LENGTH` + `tbl`.`INDEX_LENGTH`) AS `SIZE`,",
+            u"  COUNT(`tbl`.`ENGINE`) AS `COUNT`,",
+            u"  SUM(`tbl`.`DATA_LENGTH`) AS `DATA_SIZE`,",
+            u"  SUM(`tbl`.`INDEX_LENGTH`) AS `INDEX_SIZE`"
+            u"FROM",
+            u"`information_schema`.`TABLES` AS `tbl`",
+            u"WHERE",
+            u"  `tbl`.`TABLE_SCHEMA` NOT IN (",
+            u"      'information_schema',",
+            u"      'mysql',",
+            u"      'performance_schema'",
+            u"  )",
+            u"  AND",
+            u"      `tbl`.`ENGINE` IS NOT NULL",
+            u"GROUP BY",
+            u"  `tbl`.`ENGINE`"
+            u"ORDER BY",
+            u"  `eng`.`ENGINE` ASC;"
+        ))
+        with util.session_scope(engine) as sess:
+            result = sess.execute(engine_query)
+            Engine = clct.namedtuple(u"Engine", result.keys())
+            engine_sizes: typ.Sequence[str, int, int, int, int] = [
+                (engine.ENGINE, engine.SIZE, engine.COUNT, engine.DATA_SIZE, engine.INDEX_SIZE)
+                for engine in [
+                    Engine(*engine)
+                    for engine in result.fetchall()
+                ]
+            ]
+
+        for engine, size, count, data_size, index_size in engine_sizes:
+            fp.debug_print(f"Engine Found: {engine}", option)
+            if not engine:
+                continue
+            # TODO set stats and count and results variables
+    else:
+        tables: typ.Sequence[str] = []
+        # MySQL < 5 servers take a lot of work to get table sizes
+        # Now we build a database list, and loop through it to get storage engine stats for tables
+        for database in databases:
+            if database.strip() in (
+                u"information_schema",
+                u"mysql",
+                u"performance_schema",
+                u"lost+found"
+            ):
+                continue
+
+            indexes: typ.Tuple[int, int, int] = (1, 6, 9)
+
+            if __name__ == '__main__':
+                if (ver_major, ver_minor, ver_micro) < (4, 1):
+                    # MySQL 3.23/4.0 keeps Data_Length in the 5th (0-based) column
+                    indexes = (1, 5, 8)
+
+                # TODO append to tables list based on query
+            # Parse through the table list to generate storage engine counts/statistics
+            # TODO parse through tables to gather sizes
+
+        # TODO set variables and add recommendations
+        # TODO defragment tables
+        # TODO etc
+
+
+# TODO calculations for object
+def calculations(option: Option) -> None:
     pass
+
+
+def mysql_stats(option: Option) -> None:
+    fp.subheader_print(u"Performance Metrics", option)
+    # Show uptime, queries per second, connections, traffic stats
