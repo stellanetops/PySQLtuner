@@ -67,9 +67,67 @@ class Option:
         self.remote_connect: str = None
         self.cve_file: str = None
         self.basic_passwords_file: str = None
+
+
+class Info:
+    def __init__(self):
         self.ver_major: int = 0
         self.ver_minor: int = 0
         self.ver_micro: int = 0
+        self.max_connections: int = 0
+        self.read_buffer_size: int = 0
+        self.read_rnd_buffer_size: int = 0
+        self.sort_buffer_size: int = 0
+        self.thread_stack: int = 0
+        self.join_buffer_size: int = 0
+        self.record_buffer: int = 0
+        self.record_rnd_buffer: int = 0
+        self.temp_table_size: int = 0
+        self.max_heap_table_size: int = 0
+        self.key_buffer_size: int = 0
+        self.innodb_buffer_pool_size: int = 0
+        self.innodb_additional_mem_pool_size: int = 0
+        self.innodb_log_buffer_size: int = 0
+        self.query_cache_size: int = 0
+        self.aria_pagecache_buffer_size: int = 0
+        self.key_cache_block_size: int = 0
+
+
+class Stat:
+    def __init__(self):
+        self.questions: int = 0
+        self.connections: int = 0
+        self.aborted_connections: int = 0
+        self.max_used_connections: int = 0
+        self.physical_memory: int = 0
+        self.slow_queries: int = 0
+        self.key_blocks_unused: int = 0
+        self.key_reads: int = 0
+        self.key_read_requests: int = 0
+        self.aria_pagecache_reads: int = 0
+        self.aria_pagecache_read_requests: int = 0
+        self.key_writes: int = 0
+        self.key_write_requests: int = 0
+
+
+class Calc:
+    def __init__(self):
+        self.per_thread_buffers: int = 0
+        self.total_per_thread_buffers: int = 0
+        self.max_total_per_thread_buffers: int = 0
+        self.max_temp_table_size: int = 0
+        self.server_buffers: int = 0
+        self.max_used_memory: int = 0
+        self.pct_max_used_memory: float = 0
+        self.max_peak_memory: int = 0
+        self.pct_max_peak_memory: float = 0
+        self.pct_slow_queries: int = 0
+        self.pct_connections_used: int = 0
+        self.pct_connections_aborted: float = 0
+        self.pct_key_buffer_used: float = 0
+        self.pct_keys_from_memory: float = 0
+        self.pct_aria_keys_from_memory: float = 0
+        self.pct_write_keys_from_memory: float = 0
 
 
 def usage() -> None:
@@ -1669,10 +1727,109 @@ def check_storage_engines(option: Option) -> None:
         # TODO etc
 
 
-# TODO calculations for object
-def calculations(option: Option) -> None:
-    pass
+def calculations(calc: Calc, option: Option, stat: Stat, info: Info) -> None:
+    if stat.questions < 1:
+        fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
+        raise NotImplementedError
 
+    # Per-thread Memory
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (4,):
+        calc.per_thread_buffers = (
+            info.read_buffer_size +
+            info.read_rnd_buffer_size +
+            info.sort_buffer_size +
+            info.thread_stack +
+            info.join_buffer_size
+        )
+    else:
+        calc.per_thread_buffers = (
+            info.record_buffer +
+            info.record_rnd_buffer +
+            info.sort_buffer_size +
+            info.thread_stack +
+            info.join_buffer_size
+        )
+
+    calc.total_per_thread_buffers = calc.per_thread_buffers * info.max_connections
+    calc.max_total_per_thread_buffers = calc.per_thread_buffers * stat.max_used_connections
+
+    # Server-wide Memory
+    calc.max_temp_table_size = max(info.temp_table_size, info.max_heap_table_size)
+    calc.server_buffers = (
+        info.key_buffer_size +
+        calc.max_temp_table_size +
+        info.innodb_buffer_pool_size +
+        info.innodb_additional_mem_pool_size +
+        info.innodb_log_buffer_size +
+        info.query_cache_size +
+        info.aria_pagecache_buffer_size
+    )
+
+    # Global Memory
+    # Max used memory is memory used by MySQL based on Max_used_connections
+    # This is the max memory used theoretically calculated with the max concurrent connection number reached by mysql
+    calc.max_peak_memory = (
+        calc.server_buffers +
+        calc.max_total_per_thread_buffers +
+        pf_memory() +
+        gcache_memory()
+    )
+    calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
+
+    fp.debug_print(f"Max Used Memory: {util.bytes_to_string(calc.max_used_memory)}", option)
+    fp.debug_print(f"Max Used Percentage RAM: {util.bytes_to_string(calc.pct_max_used_memory)}%", option)
+    fp.debug_print(f"Max Peak Memory: {util.bytes_to_string(calc.max_peak_memory)}", option)
+    fp.debug_print(f"Max Peak Percentage RAM: {util.bytes_to_string(calc.pct_max_physical_memory)}%", option)
+
+    # Slow Queries
+    calc.pct_slow_queries = int(stat.slow_queries / stat.questions * 100)
+
+    # Connections
+    calc.pct_connections_used = int(stat.max_used_connections / info.max_connections)
+    calc.pct_connections_used = min(calc.pct_connections_used, 100)
+
+    # Aborted Connections
+    calc.pct_connections_aborted = util.percentage(stat.aborted_connections, stat.connections)
+    fp.debug_print(f"Aborted Connections: {stat.aborted_connections}", option)
+    fp.debug_print(f"Connections: {stat.connections}", option)
+    fp.debug_print(f"Percent of Connections Aborted {calc.pct_connections_aborted}", option)
+
+    # Key Buffers
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (4, 1) and info.key_buffer_size > 0:
+        calc.pct_key_buffer_used = round(100 * (
+            1 - (
+                stat.key_blocks_unused *
+                info.key_cache_block_size /
+                info.key_buffer_size
+            )
+        ), 1)
+
+    if stat.key_read_requests > 0:
+        calc.pct_keys_from_memory = round(100 * (
+            1 - (
+                stat.key_reads /
+                stat.key_read_requests
+            )
+        ), 1)
+
+    if stat.aria_pagecache_read_requests > 0:
+        calc.pct_aria_keys_from_memory = round(100 * (
+            1 - (
+                stat.aria_pagecache_reads /
+                stat.aria_pagecache_read_requests
+            )
+        ), 1)
+
+    if stat.key_write_requests > 0:
+        calc.pct_write_keys_from_memory = round(100 * (
+            1 - (
+                stat.key_writes /
+                stat.key_write_requests
+            )
+        ), 1)
+
+    if option.do_remote and info.ver_major < 5:
+        size: int = 0
 
 def mysql_stats(option: Option) -> None:
     fp.subheader_print(u"Performance Metrics", option)
