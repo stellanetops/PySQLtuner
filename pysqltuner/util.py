@@ -144,7 +144,7 @@ def session_scope(engine):
     :yield: session object
     """
     get_session = orm.scoped_session(orm.sessionmaker(bind=engine))
-    session = get_session()
+    session: orm.session.Session = get_session()
     try:
         yield session
         session.commit()

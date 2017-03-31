@@ -11,6 +11,7 @@ https://github.com/major/MySQLtuner-perl
 import collections as clct
 import getpass
 import os
+import os.path as osp
 import platform
 import psutil as psu
 import re
@@ -74,6 +75,8 @@ class Info:
         self.ver_major: int = 0
         self.ver_minor: int = 0
         self.ver_micro: int = 0
+        self.data_dir: str = None
+        self.script_dir: str = None
         self.max_connections: int = 0
         self.read_buffer_size: int = 0
         self.read_rnd_buffer_size: int = 0
@@ -108,6 +111,7 @@ class Stat:
         self.aria_pagecache_read_requests: int = 0
         self.key_writes: int = 0
         self.key_write_requests: int = 0
+        self.du_flags: str = None
 
 
 class Calc:
@@ -128,6 +132,8 @@ class Calc:
         self.pct_keys_from_memory: float = 0
         self.pct_aria_keys_from_memory: float = 0
         self.pct_write_keys_from_memory: float = 0
+        self.total_myisam_indexes: int = 0
+        self.total_aria_indexes: int = 0
 
 
 def usage() -> None:
@@ -1727,7 +1733,7 @@ def check_storage_engines(option: Option) -> None:
         # TODO etc
 
 
-def calculations(calc: Calc, option: Option, stat: Stat, info: Info) -> None:
+def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: Stat, info: Info) -> None:
     if stat.questions < 1:
         fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
         raise NotImplementedError
@@ -1830,6 +1836,66 @@ def calculations(calc: Calc, option: Option, stat: Stat, info: Info) -> None:
 
     if option.do_remote and info.ver_major < 5:
         size: int = 0
+        index_size_command: typ.Sequence[str] = u" ".join((
+            u"find",
+            f"{info.data_dir}",
+            u"-name",
+            u"'*MYI'",
+            u"2>&1",
+            u"|",
+            u"xargs du -L"
+            f"{stat.du_flags}",
+            u"2>&1"
+        ))
+        index_size: int = int(util.get(index_size_command).split()[0])
+        size += index_size
+
+        calc.total_myisam_indexes = size
+        calc.total_aria_indexes = 0
+    elif info.ver_major >= 5:
+        script_dir: str = osp.dirname(osp.realpath(__file__))
+
+        myisam_index_query_file: str = osp.abspath(script_dir, u"../query/myisam-index-query.sql")
+        with open(myisam_index_query_file, mode=u"r", encoding=u"utf-8") as miqf:
+            myisam_query: str = miqf.read()
+            result = sess.execute(myisam_query)
+            Index = clct.namedtuple(u"Index", result.keys())
+            index_sizes: typ.Sequence[int] = [
+                index.INDEX_LENGTH
+                for index in [
+                    Index(*index)
+                    for index in result.fetchall()
+                ]
+            ]
+
+            for index_size in index_sizes:
+                calc.total_myisam_indexes += index_size
+
+        aria_index_query_file: str = osp.abspath(script_dir, u"../query/aria-index-query.sql")
+        with open(aria_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
+            aria_query: str = aqf.read()
+            result = sess.execute(aria_query)
+            Index = clct.namedtuple(u"Index", result.keys())
+            index_sizes: typ.Sequence[int] = [
+                index.INDEX_LENGTH
+                for index in [
+                    Index(*index)
+                    for index in result.fetchall()
+                    ]
+                ]
+
+            for index_size in index_sizes:
+                calc.total_aria_indexes += index_size
+
+    if not calc.total_myisam_indexes:
+        calc.total_myisam_indexes = 0
+
+    if not calc.total_aria_indexes:
+        calc.total_aria_indexes = 1
+
+
+    # Query Cache
+
 
 def mysql_stats(option: Option) -> None:
     fp.subheader_print(u"Performance Metrics", option)
