@@ -9,6 +9,7 @@ https://github.com/major/MySQLtuner-perl
 """
 
 import collections as clct
+import functools as funct
 import getpass
 import os
 import os.path as osp
@@ -60,7 +61,7 @@ class Option:
         self.json: bool = False
         self.pretty_json: bool = False
         self.report_file: str = None
-        self.verbose: bool = False
+        self._verbose: bool = False
         self.defaults_file: str = None
         self.mysqladmin: str = None
         self.mysqlcmd: str = None
@@ -68,6 +69,22 @@ class Option:
         self.remote_connect: str = None
         self.cve_file: str = None
         self.basic_passwords_file: str = None
+
+    @property
+    def verbose(self) -> bool:
+        return self._verbose
+
+    @verbose.setter
+    def verbose(self, value: bool):
+        self._verbose = value
+        if self._verbose:
+            self.check_version = True
+            self.db_stat = True
+            self.idx_stat = True
+            self.sys_stat = True
+            self.buffers = True
+            self.pf_stat = True
+            self.cve_file = u"vulnerabilities.csv"
 
 
 class Info:
@@ -111,6 +128,7 @@ class Info:
         self.have_spider: bool = False
         self.have_connect: bool = False
         self.wsrep_provider_options: str = None
+        self.log_error_file: str = None
 
 
 class Stat:
@@ -204,6 +222,7 @@ class Calc:
         self.pct_binlog_cache: float = 0
 
     @property
+    @funct.lru_cache()
     def pct_writes(self):
         return 100 - self.pct_reads
 
@@ -569,15 +588,6 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     )
 
 
-def is_readable(read_path: str) -> bool:
-    """Checks if file is readable
-
-    :param str read_path: readable file path
-    :return bool:
-    """
-    return os.path.isfile(read_path) and os.access(read_path, os.R_OK)
-
-
 def mysql_setup(option: Option) -> bool:
     """Sets up options for mysql
 
@@ -693,7 +703,7 @@ def mysql_setup(option: Option) -> bool:
                 fp.bad_print(u"Attempted to use login credentials from mysql-quickbackup, they were invalid", option)
                 raise ConnectionRefusedError
 
-    elif is_readable(u"/etc/psa/.psa.shadow") and not option.do_remote:
+    elif util.is_readable(u"/etc/psa/.psa.shadow") and not option.do_remote:
         # It's a Plesk box, use the available credentials
         plesk_command: typ.Sequence[str] = (
             u"cat",
@@ -731,7 +741,7 @@ def mysql_setup(option: Option) -> bool:
                 fp.bad_print(u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed", option)
                 raise ConnectionRefusedError
 
-    elif is_readable(u"/usr/local/directadmin/conf/mysql.conf") and not option.do_remote:
+    elif util.is_readable(u"/usr/local/directadmin/conf/mysql.conf") and not option.do_remote:
         # It's a DirectAdmin box, use the available credentials
         mysql_user_command: typ.Sequence[str] = (
             u"cat",
@@ -778,7 +788,7 @@ def mysql_setup(option: Option) -> bool:
             fp.bad_print(u"Attempted to use login credentials from DirectAdmin, but they failed", option)
             raise ConnectionRefusedError
 
-    elif is_readable(u"/etc/mysql/debian.cnf") and not option.do_remote:
+    elif util.is_readable(u"/etc/mysql/debian.cnf") and not option.do_remote:
         # We have a debian maintenance account, use the available credentials
         mysql_login: str = u"--defaults-file=/etc/mysql/debian.cnf"
         login_command: typ.Sequence[str] = (
@@ -796,7 +806,7 @@ def mysql_setup(option: Option) -> bool:
             fp.bad_print(u"Attempted to use login credentials from DirectAdmin, but they failed", option)
             raise ConnectionRefusedError
 
-    elif option.defaults_file and is_readable(option.defaults_file):
+    elif option.defaults_file and util.is_readable(option.defaults_file):
         # Defaults File
         fp.debug_print(f"defaults file detected: {option.defaults_file}", option)
 

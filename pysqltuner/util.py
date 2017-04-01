@@ -18,7 +18,7 @@ def get(command: typ.Sequence) -> str:
     :param typ.Sequence command: input command
     :return str: formatted stdout
     """
-    return str(sbpr.check_output(command, shell=True, universal_newlines=True).strip(), encoding="utf-8")
+    return str(sbpr.check_output(command, shell=True, universal_newlines=True).strip())
 
 
 def run(command: typ.Sequence) -> None:
@@ -29,6 +29,14 @@ def run(command: typ.Sequence) -> None:
     """
     sbpr.run(command, shell=True, encoding=u"utf-8")
 
+
+def is_readable(read_path: str) -> bool:
+    """Checks if file is readable
+
+    :param str read_path: readable file path
+    :return bool:
+    """
+    return os.path.isfile(read_path) and os.access(read_path, os.R_OK)
 
 def bytes_to_string(amount: int=0) -> str:
     """Converts amount of bytes as integer into string representation
