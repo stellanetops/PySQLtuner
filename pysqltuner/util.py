@@ -5,6 +5,7 @@ Utilities module for random functions
 import collections as clct
 import contextlib as ctxt
 import math
+import os
 import re
 import sqlalchemy.orm as orm
 import subprocess as sbpr
@@ -37,6 +38,7 @@ def is_readable(read_path: str) -> bool:
     :return bool:
     """
     return os.path.isfile(read_path) and os.access(read_path, os.R_OK)
+
 
 def bytes_to_string(amount: int=0) -> str:
     """Converts amount of bytes as integer into string representation

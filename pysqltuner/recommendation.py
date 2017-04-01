@@ -5,7 +5,7 @@ Module to generate recommendations for change to MySQL
 import os
 import psycopg2
 import typing as typ
-import pysqltuner as tuner
+import pysqltuner.tuner as tuner
 import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
 

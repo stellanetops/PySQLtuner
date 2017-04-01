@@ -7,7 +7,7 @@ import functools as funct
 import getpass as gp
 import re
 import typing as typ
-import pysqltuner as tuner
+import pysqltuner.tuner as tuner
 
 
 class Color:

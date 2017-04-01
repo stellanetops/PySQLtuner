@@ -5,7 +5,7 @@ Allows tuning to increase performance and stability
 
 import argparse
 import platform
-import pysqltuner as tuner
+import pysqltuner.tuner as tuner
 import pysqltuner.fancy_print as fp
 
 if __name__ == "__main__":
