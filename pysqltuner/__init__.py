@@ -160,6 +160,7 @@ class Calc:
         self.pct_max_used_memory: float = 0
         self.max_peak_memory: int = 0
         self.pct_max_peak_memory: float = 0
+        self.pct_max_physical_memory: float = 0
         self.pct_slow_queries: int = 0
         self.pct_connections_used: int = 0
         self.pct_connections_aborted: float = 0
@@ -881,7 +882,7 @@ def tuning_info():
 def mysql_status_vars(option: Option) -> None:
     """Gathers all status variables
 
-    :param option:
+    :param Option option: options object
     :return:
     """
     # We need to initiate at least one query so that our data is usable
@@ -1792,6 +1793,14 @@ def check_storage_engines(option: Option) -> None:
         # TODO etc
 
 
+def pf_memory(option: Option) -> int:
+    pass
+
+
+def gcache_memory(option: Option) -> int:
+    pass
+
+
 def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: Stat, info: Info) -> None:
     if stat.questions < 1:
         fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
@@ -1836,8 +1845,8 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
     calc.max_peak_memory = (
         calc.server_buffers +
         calc.max_total_per_thread_buffers +
-        pf_memory() +
-        gcache_memory()
+        pf_memory(option) +
+        gcache_memory(option)
     )
     calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
 
@@ -2073,6 +2082,17 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
         )
 
 
+# TODO finish mysql stats function
 def mysql_stats(option: Option) -> None:
     fp.subheader_print(u"Performance Metrics", option)
     # Show uptime, queries per second, connections, traffic stats
+
+
+# TODO finish MyISAM recommendations
+def mysql_myisam(option: Option) -> None:
+    """Recommendations for MyISAM
+
+    :param Option option: options object
+    :return:
+    """
+    pass
