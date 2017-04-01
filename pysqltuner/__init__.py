@@ -98,6 +98,7 @@ class Info:
         self.have_innodb: bool = True
         self.innodb_log_file_size: int = 0
         self.innodb_log_files_in_group: int = 0
+        self.log_bin: bool = False
 
 
 class Stat:
@@ -138,8 +139,14 @@ class Stat:
         self.immediate_table_locks: int = 0
         self.waited_table_locks: int = 0
         self.created_threads: int = 0
-        self.buffer_pool_reads: int = 1
-        self.buffer_pool_read_requests: int = 1
+        self.innodb_buffer_pool_reads: int = 1
+        self.innodb_buffer_pool_read_requests: int = 1
+        self.innodb_log_writes: int = 1
+        self.innodb_log_write_requests: int = 1
+        self.innodb_buffer_pool_pages_free: int = 0
+        self.innodb_buffer_pool_pages_total: int = 0
+        self.binlog_cache_use: int = 0
+        self.binlog_cache_disk_use: int = 0
 
 
 class Calc:
@@ -179,6 +186,9 @@ class Calc:
         self.pct_reads: int = 0
         self.innodb_log_size_pct: int = 0
         self.pct_read_efficiency: float = 0
+        self.pct_write_efficiency: float = 0
+        self.pct_innodb_buffer_used: float = 0
+        self.pct_binlog_cache: float = 0
 
     @property
     def pct_writes(self):
@@ -2035,7 +2045,32 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
         )
 
     # InnoDB Buffer pool read cache efficiency
-    calc.pct_read_efficiency = util.percentage()
+    calc.pct_read_efficiency = util.percentage(
+        stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads
+    )
+    fp.debug_print(f"pct_read_efficiency: {calc.pct_read_efficiency}", option)
+    fp.debug_print(f"innodb_buffer_pool_reads: {stat.innodb_buffer_pool_reads}", option)
+    fp.debug_print(f"innodb_buffer_pool_read_requests: {stat.innodb_buffer_pool_read_requests}", option)
+
+    # InnoDB log write cache efficiency
+    calc.pct_write_efficiency = util.percentage(
+        stat.innodb_log_write_requests - stat.innodb_log_writes
+    )
+    fp.debug_print(f"pct_write_efficiency: {calc.pct_write_efficiency}", option)
+    fp.debug_print(f"innodb_log_writes: {stat.innodb_log_writes}", option)
+    fp.debug_print(f"innodb_log_write_requests: {stat.innodb_log_write_requests}", option)
+
+    if stat.innodb_buffer_pool_pages_total > 0:
+        calc.pct_innodb_buffer_used = util.percentage(
+            stat.innodb_buffer_pool_pages_total - stat.innodb_buffer_pool_pages_free
+        )
+
+    # Binlog Cache
+    if info.log_bin:
+        calc.pct_binlog_cache = util.percentage(
+            stat.binlog_cache_use - stat.binlog_cache_disk_use,
+            stat.binlog_cache_use
+        )
 
 
 def mysql_stats(option: Option) -> None:
