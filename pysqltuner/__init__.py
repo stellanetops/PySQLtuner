@@ -76,7 +76,7 @@ class Info:
         self.ver_minor: int = 0
         self.ver_micro: int = 0
         self.data_dir: str = None
-        self.script_dir: str = None
+        self.script_dir: str = osp.dirname(osp.realpath(__file__))
         self.max_connections: int = 0
         self.read_buffer_size: int = 0
         self.read_rnd_buffer_size: int = 0
@@ -92,13 +92,24 @@ class Info:
         self.innodb_additional_mem_pool_size: int = 0
         self.innodb_log_buffer_size: int = 0
         self.query_cache_size: int = 0
-        self.aria_pagecache_buffer_size: int = 0
+        self.ariadb_pagecache_buffer_size: int = 0
         self.key_cache_block_size: int = 0
         self.open_files_limit: int = 0
         self.have_innodb: bool = True
+        self.have_myisam: bool = True
         self.innodb_log_file_size: int = 0
         self.innodb_log_files_in_group: int = 0
         self.log_bin: bool = False
+        self.have_threadpool: bool = False
+        self.thread_pool_size: int = 0
+        self.version: str = None
+        self.performance_schema: bool = True
+        self.have_ariadb: bool = False
+        self.have_tokudb: bool = False
+        self.have_xtradb: bool = False
+        self.have_rocksdb: bool = False
+        self.have_spider: bool = False
+        self.have_connect: bool = False
 
 
 class Stat:
@@ -112,8 +123,8 @@ class Stat:
         self.key_blocks_unused: int = 0
         self.key_reads: int = 0
         self.key_read_requests: int = 0
-        self.aria_pagecache_reads: int = 0
-        self.aria_pagecache_read_requests: int = 0
+        self.ariadb_pagecache_reads: int = 0
+        self.ariadb_pagecache_read_requests: int = 0
         self.key_writes: int = 0
         self.key_write_requests: int = 0
         self.du_flags: str = None
@@ -166,10 +177,10 @@ class Calc:
         self.pct_connections_aborted: float = 0
         self.pct_key_buffer_used: float = 0
         self.pct_keys_from_memory: float = 0
-        self.pct_aria_keys_from_memory: float = 0
+        self.pct_ariadb_keys_from_memory: float = 0
         self.pct_write_keys_from_memory: float = 0
         self.total_myisam_indexes: int = 0
-        self.total_aria_indexes: int = 0
+        self.total_ariadb_indexes: int = 0
         self.query_cache_efficiency: float = 0
         self.pct_query_cache_used: float = 0
         self.query_cache_prunes_per_day: int = 0
@@ -1793,14 +1804,6 @@ def check_storage_engines(option: Option) -> None:
         # TODO etc
 
 
-def pf_memory(option: Option) -> int:
-    pass
-
-
-def gcache_memory(option: Option) -> int:
-    pass
-
-
 def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: Stat, info: Info) -> None:
     if stat.questions < 1:
         fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
@@ -1836,7 +1839,7 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
         info.innodb_additional_mem_pool_size +
         info.innodb_log_buffer_size +
         info.query_cache_size +
-        info.aria_pagecache_buffer_size
+        info.ariadb_pagecache_buffer_size
     )
 
     # Global Memory
@@ -1845,7 +1848,7 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
     calc.max_peak_memory = (
         calc.server_buffers +
         calc.max_total_per_thread_buffers +
-        pf_memory(option) +
+        performance_memory(option) +
         gcache_memory(option)
     )
     calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
@@ -1886,11 +1889,11 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
             )
         ), 1)
 
-    if stat.aria_pagecache_read_requests > 0:
-        calc.pct_aria_keys_from_memory = round(100 * (
+    if stat.ariadb_pagecache_read_requests > 0:
+        calc.pct_ariadb_keys_from_memory = round(100 * (
             1 - (
-                stat.aria_pagecache_reads /
-                stat.aria_pagecache_read_requests
+                stat.ariadb_pagecache_reads /
+                stat.ariadb_pagecache_read_requests
             )
         ), 1)
 
@@ -1919,11 +1922,9 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
         size += index_size
 
         calc.total_myisam_indexes = size
-        calc.total_aria_indexes = 0
+        calc.total_ariadb_indexes = 0
     elif info.ver_major >= 5:
-        script_dir: str = osp.dirname(osp.realpath(__file__))
-
-        myisam_index_query_file: str = osp.abspath(script_dir, u"../query/myisam-index-query.sql")
+        myisam_index_query_file: str = osp.abspath(info.script_dir, u"../query/myisam-index-query.sql")
         with open(myisam_index_query_file, mode=u"r", encoding=u"utf-8") as miqf:
             myisam_query: str = miqf.read()
             result = sess.execute(myisam_query)
@@ -1939,10 +1940,10 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
             for index_size in index_sizes:
                 calc.total_myisam_indexes += index_size
 
-        aria_index_query_file: str = osp.abspath(script_dir, u"../query/aria-index-query.sql")
-        with open(aria_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
-            aria_query: str = aqf.read()
-            result = sess.execute(aria_query)
+        ariadb_index_query_file: str = osp.abspath(info.script_dir, u"../query/aria-index-query.sql")
+        with open(ariadb_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
+            ariadb_query: str = aqf.read()
+            result = sess.execute(ariadb_query)
             Index = clct.namedtuple(u"Index", result.keys())
             index_sizes: typ.Sequence[int] = [
                 index.INDEX_LENGTH
@@ -1953,13 +1954,13 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
                 ]
 
             for index_size in index_sizes:
-                calc.total_aria_indexes += index_size
+                calc.total_ariadb_indexes += index_size
 
     if not calc.total_myisam_indexes:
         calc.total_myisam_indexes = 0
 
-    if not calc.total_aria_indexes:
-        calc.total_aria_indexes = 1
+    if not calc.total_ariadb_indexes:
+        calc.total_ariadb_indexes = 1
 
     # Query Cache
     if info.ver_major >= 4:
@@ -2096,3 +2097,246 @@ def mysql_myisam(option: Option) -> None:
     :return:
     """
     pass
+
+
+def mariadb_threadpool(option: Option, info: Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for ThreadPool
+
+    :param Option option:
+    :param Info info:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    fp.subheader_print(u"ThreadPool Metrics", option)
+
+    # AriaDB
+    if not info.have_threadpool:
+        fp.info_print(u"ThreadPool stat is disabled.", option)
+        return recommendations, adjusted_vars
+
+    fp.info_print(u"ThreadPool stat is enabled.", option)
+    fp.info_print(f"Thread Pool size: {info.thread_pool_size} thread(s)", option)
+
+    versions: typ.Sequence[str] = (
+        u"mariadb",
+        u"percona"
+    )
+    if any(version in info.version.lower() for version in versions):
+        fp.info_print(f"Using default value is good enough for your version ({info.version})", option)
+        return recommendations, adjusted_vars
+
+    if info.have_innodb:
+        if info.thread_pool_size < 16 or info.thread_pool_size > 36:
+            fp.bad_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine.", option)
+            recommendations.append(
+                f"Thread Pool size for InnoDB usage ({info.thread_pool_size})"
+            )
+            adjusted_vars.append(
+                u"thread_pool_size between 16 and 36 for InnoDB usage"
+            )
+        else:
+            fp.good_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine", option)
+
+    if info.have_myisam:
+        if info.thread_pool_size < 4 or info.thread_pool_size > 8:
+            fp.bad_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine.", option)
+            recommendations.append(
+                f"Thread Pool size for MyISAM usage ({info.thread_pool_size})"
+            )
+            adjusted_vars.append(
+                u"thread_pool_size between 4 and 8 for MyISAM usage"
+            )
+        else:
+            fp.good_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine", option)
+
+    return recommendations, adjusted_vars
+
+
+def performance_memory(option: Option, info: Info, sess: orm.session.Session) -> int:
+    """Gets Performance schema memory taken
+
+    :param Option option:
+    :param Info info:
+    :param orm.session.Session sess:
+    :return:
+    """
+    # Performance Schema
+    if not info.performance_schema:
+        return 0
+
+    pf_memory_query_file: str = osp.abspath(info.script_dir, u"../query/performance_schema-memory-query.sql")
+    with open(pf_memory_query_file, mode=u"r", encoding=u"utf-8") as pfmqf:
+        pf_memory_query: str = pfmqf.read()
+        result = sess.execute(pf_memory_query)
+        Memory = clct.namedtuple(u"Memory", result.keys())
+        memory_sizes: typ.Sequence[int] = [
+            memory.DATA_LENGTH
+            for memory in [
+                Memory(*memory)
+                for memory in result.fetchall()
+                ]
+            ]
+    return sum(memory_sizes)
+
+
+def gcache_memory(option: Option) -> int:
+    pass
+
+
+# TODO 1500 line function
+def mysql_pfs(option: Option) -> None:
+    pass
+
+
+def recommendation_template(option: Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for XXX
+
+    :param Option option:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    return recommendations, adjusted_vars
+
+
+def mariadb_ariadb(option: Option, info: Info, calc: Calc, stat: Stat) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for AriaDB
+
+    :param Option option:
+    :param Info info:
+    :param Calc calc:
+    :param Stat stat
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    # AriaDB
+    if not info.have_ariadb:
+        fp.info_print(u"AriaDB is disabled.", option)
+        return recommendations, adjusted_vars
+
+    fp.info_print(u"AriaDB is enabled.", option)
+
+    # Aria pagecache
+    if calc.total_ariadb_indexes == 0 and option.do_remote:
+        recommendations.append(
+            u"Unable to calculate AriaDB indexes on remote MySQL server < 5.0.0"
+        )
+    elif calc.total_ariadb_indexes == 0:
+        fp.bad_print(u"None of your AriaDB tables are indexed - add indexes immediately")
+    else:
+        ariadb_pagecache_size_message: str = (
+            u"AriaDB pagecache size / total AriaDB indexes: "
+            f"{util.bytes_to_string(info.ariadb_pagecache_buffer_size)}/"
+            f"{util.bytes_to_string(calc.total_ariadb_indexes)}"
+        )
+        if info.ariadb_pagecache_buffer_size < calc.total_ariadb_indexes and calc.pct_ariadb_keys_from_memory < 95:
+            fp.bad_print(ariadb_pagecache_size_message, option)
+            adjusted_vars.append(
+                f"ariadb_pagecache_buffer_size (> {util.bytes_to_string(calc.total_ariadb_indexes)})"
+            )
+        else:
+            fp.good_print(ariadb_pagecache_size_message, option)
+
+        if stat.ariadb_pagecache_read_requests > 0:
+            ariadb_pagecache_read_message: str = (
+                f"AriaDB pagecache hit rate: {calc.pct_ariadb_keys_from_memory}% ("
+                f"{util.bytes_to_string(stat.ariadb_pagecache_read_requests)} cached /"
+                f"{util.bytes_to_string(stat.ariadb_pagecache_read_requests)} reads)"
+            )
+            if calc.pct_ariadb_keys_from_memory < 95:
+                fp.bad_print(ariadb_pagecache_read_message, option)
+            else:
+                fp.good_print(ariadb_pagecache_read_message, option)
+
+    return recommendations, adjusted_vars
+
+
+def mariadb_tokudb(option: Option, info: Info) -> None:
+    """Recommendations for TokuDB
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    fp.subheader_print(u"TokuDB Metrics", option)
+
+    # Toku DB
+    if not info.have_tokudb:
+        fp.info_print(u"TokuDB is disabled.", option)
+        return
+
+    fp.info_print(u"TokuDB is enabled.", option)
+
+
+def mariadb_xtradb(option: Option, info: Info) -> None:
+    """Recommendations for XtraDB
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    fp.subheader_print(u"XtraDB Metrics", option)
+
+    # Xtra DB
+    if not info.have_xtradb:
+        fp.info_print(u"XtraDB is disabled.", option)
+        return
+
+    fp.info_print(u"XtraDB is enabled.", option)
+
+
+def mariadb_rocksdb(option: Option, info: Info) -> None:
+    """Recommendations for RocksDB
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    fp.subheader_print(u"RocksDB Metrics", option)
+
+    # Rocks DB
+    if not info.have_rocksdb:
+        fp.info_print(u"RocksDB is disabled.", option)
+        return
+
+    fp.info_print(u"RocksDB is enabled.", option)
+
+
+def mariadb_spider(option: Option, info: Info) -> None:
+    """Recommendations for Spider
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    fp.subheader_print(u"Spider Metrics", option)
+
+    # Toku DB
+    if not info.have_spider:
+        fp.info_print(u"Spider is disabled.", option)
+        return
+
+    fp.info_print(u"Spider is enabled.", option)
+
+
+def mariadb_connect(option: Option, info: Info) -> None:
+    """Recommendations for Connect
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    fp.subheader_print(u"Connect Metrics", option)
+
+    # Toku DB
+    if not info.have_connect:
+        fp.info_print(u"Connect is disabled.", option)
+        return
+
+    fp.info_print(u"Connect is enabled.", option)
+
