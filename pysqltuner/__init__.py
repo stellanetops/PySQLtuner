@@ -110,6 +110,7 @@ class Info:
         self.have_rocksdb: bool = False
         self.have_spider: bool = False
         self.have_connect: bool = False
+        self.wsrep_provider_options: str = None
 
 
 class Stat:
@@ -2181,10 +2182,6 @@ def performance_memory(option: Option, info: Info, sess: orm.session.Session) ->
     return sum(memory_sizes)
 
 
-def gcache_memory(option: Option) -> int:
-    pass
-
-
 # TODO 1500 line function
 def mysql_pfs(option: Option) -> None:
     pass
@@ -2340,3 +2337,69 @@ def mariadb_connect(option: Option, info: Info) -> None:
 
     fp.info_print(u"Connect is enabled.", option)
 
+
+def wsrep_options(option: Option, info: Info) -> typ.Sequence[str]:
+    """
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    if not info.wsrep_provider_options:
+        return []
+
+    galera_options: typ.Sequence[str] = [
+        wsrep.strip()
+        for wsrep in info.wsrep_provider_options.split(";")
+        if wsrep.strip()
+    ]
+
+    fp.debug_print(f"{galera_options}", option)
+
+    return galera_options
+
+
+def wsrep_option(option: Option, info: Info, key: str) -> str:
+    """
+
+    :param Option option:
+    :param Info info:
+    :param str key:
+    :return str:
+    """
+    if not info.wsrep_provider_options:
+        return u""
+
+    galera_options: typ.Sequence[str] = wsrep_options(option, info)
+    if not galera_options:
+        return u""
+
+    galera_match : str = f"\s*{key} ="
+    memory_values: typ.Sequence[str] = [
+        galera_option for galera_option in galera_options
+        if re.match(galera_match, galera_option)
+    ]
+
+    return memory_values[0]
+
+
+def gcache_memory(option: Option, info: Info) -> int:
+    """
+
+    :param Option option:
+    :param Info info:
+    :return:
+    """
+    return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
+
+
+def mariadb_galera(option: Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for Galera
+
+    :param Option option:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    return recommendations, adjusted_vars
