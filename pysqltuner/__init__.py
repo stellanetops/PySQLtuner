@@ -9,7 +9,6 @@ https://github.com/major/MySQLtuner-perl
 """
 
 import collections as clct
-import functools as funct
 import getpass
 import os
 import os.path as osp
@@ -20,211 +19,13 @@ import requests as req
 import shutil
 import sqlalchemy as sqla
 import sqlalchemy.orm as orm
+import pysqltuner.tuner as tuner
 import typing as typ
 import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
 
 __version__: str = u"0.0.1"
 __email__: str = u"immanuelqrw@gmail.com"
-
-
-class Option:
-    def __init__(self) -> None:
-        self.silent: bool = False
-        self.no_color: bool = False
-        self.no_good: bool = False
-        self.no_info: bool = False
-        self.no_bad: bool = False
-        self.debug: bool = False
-        self.force_mem: int = None
-        self.force_swap: int = None
-        self.host: str = None
-        self.socket: int = None
-        self.port: int = None
-        self.user: str = None
-        self.password: str = None
-        self.skip_size: bool = False
-        self.check_version: bool = False
-        self.update_version: bool = False
-        self.buffers: bool = False
-        self.password_file: str = None
-        self.banned_ports: typ.Sequence[int] = None
-        self.max_port_allowed: int = 0
-        self.output_file: str = None
-        self.db_stat: bool = False
-        self.idx_stat: bool = False
-        self.sys_stat: bool = False
-        self.pf_stat: bool = False
-        self.skip_password: bool = False
-        self.no_ask: bool = False
-        self.template: str = None
-        self.json: bool = False
-        self.pretty_json: bool = False
-        self.report_file: str = None
-        self._verbose: bool = False
-        self.defaults_file: str = None
-        self.mysqladmin: str = None
-        self.mysqlcmd: str = None
-        self.do_remote: bool = False
-        self.remote_connect: str = None
-        self.cve_file: str = None
-        self.basic_passwords_file: str = None
-
-    @property
-    def verbose(self) -> bool:
-        return self._verbose
-
-    @verbose.setter
-    def verbose(self, value: bool):
-        self._verbose = value
-        if self._verbose:
-            self.check_version = True
-            self.db_stat = True
-            self.idx_stat = True
-            self.sys_stat = True
-            self.buffers = True
-            self.pf_stat = True
-            self.cve_file = u"vulnerabilities.csv"
-
-
-class Info:
-    def __init__(self):
-        self.ver_major: int = 0
-        self.ver_minor: int = 0
-        self.ver_micro: int = 0
-        self.data_dir: str = None
-        self.script_dir: str = osp.dirname(osp.realpath(__file__))
-        self.max_connections: int = 0
-        self.read_buffer_size: int = 0
-        self.read_rnd_buffer_size: int = 0
-        self.sort_buffer_size: int = 0
-        self.thread_stack: int = 0
-        self.join_buffer_size: int = 0
-        self.record_buffer: int = 0
-        self.record_rnd_buffer: int = 0
-        self.temp_table_size: int = 0
-        self.max_heap_table_size: int = 0
-        self.key_buffer_size: int = 0
-        self.innodb_buffer_pool_size: int = 0
-        self.innodb_additional_mem_pool_size: int = 0
-        self.innodb_log_buffer_size: int = 0
-        self.query_cache_size: int = 0
-        self.ariadb_pagecache_buffer_size: int = 0
-        self.key_cache_block_size: int = 0
-        self.open_files_limit: int = 0
-        self.have_innodb: bool = True
-        self.have_myisam: bool = True
-        self.innodb_log_file_size: int = 0
-        self.innodb_log_files_in_group: int = 0
-        self.log_bin: bool = False
-        self.have_threadpool: bool = False
-        self.thread_pool_size: int = 0
-        self.version: str = None
-        self.performance_schema: bool = True
-        self.have_ariadb: bool = False
-        self.have_tokudb: bool = False
-        self.have_xtradb: bool = False
-        self.have_rocksdb: bool = False
-        self.have_spider: bool = False
-        self.have_connect: bool = False
-        self.wsrep_provider_options: str = None
-        self.log_error_file: str = None
-
-
-class Stat:
-    def __init__(self):
-        self.questions: int = 0
-        self.connections: int = 0
-        self.aborted_connections: int = 0
-        self.max_used_connections: int = 0
-        self.physical_memory: int = 0
-        self.slow_queries: int = 0
-        self.key_blocks_unused: int = 0
-        self.key_reads: int = 0
-        self.key_read_requests: int = 0
-        self.ariadb_pagecache_reads: int = 0
-        self.ariadb_pagecache_read_requests: int = 0
-        self.key_writes: int = 0
-        self.key_write_requests: int = 0
-        self.du_flags: str = None
-        self.query_cache_hits: int = 0
-        self.query_cache_free_memory: int = 0
-        self.query_cache_low_memory_prunes: int = 0
-        self.com_select: int = 0
-        self.com_insert: int = 0
-        self.com_delete: int = 0
-        self.com_update: int = 0
-        self.com_replace: int = 0
-        self.uptime: int = 0
-        self.sort_scan: int = 0
-        self.sort_range: int = 0
-        self.sort_merge_passes: int = 0
-        self.select_range_check: int = 0
-        self.select_full_join: int = 0
-        self.created_temp_tables: int = 0
-        self.created_temp_disk_tables: int = 0
-        self.open_tables: int = 0
-        self.opened_tables: int = 0
-        self.open_files: int = 0
-        self.immediate_table_locks: int = 0
-        self.waited_table_locks: int = 0
-        self.created_threads: int = 0
-        self.innodb_buffer_pool_reads: int = 1
-        self.innodb_buffer_pool_read_requests: int = 1
-        self.innodb_log_writes: int = 1
-        self.innodb_log_write_requests: int = 1
-        self.innodb_buffer_pool_pages_free: int = 0
-        self.innodb_buffer_pool_pages_total: int = 0
-        self.binlog_cache_use: int = 0
-        self.binlog_cache_disk_use: int = 0
-
-
-class Calc:
-    def __init__(self):
-        self.per_thread_buffers: int = 0
-        self.total_per_thread_buffers: int = 0
-        self.max_total_per_thread_buffers: int = 0
-        self.max_temp_table_size: int = 0
-        self.server_buffers: int = 0
-        self.max_used_memory: int = 0
-        self.pct_max_used_memory: float = 0
-        self.max_peak_memory: int = 0
-        self.pct_max_peak_memory: float = 0
-        self.pct_max_physical_memory: float = 0
-        self.pct_slow_queries: int = 0
-        self.pct_connections_used: int = 0
-        self.pct_connections_aborted: float = 0
-        self.pct_key_buffer_used: float = 0
-        self.pct_keys_from_memory: float = 0
-        self.pct_ariadb_keys_from_memory: float = 0
-        self.pct_write_keys_from_memory: float = 0
-        self.total_myisam_indexes: int = 0
-        self.total_ariadb_indexes: int = 0
-        self.query_cache_efficiency: float = 0
-        self.pct_query_cache_used: float = 0
-        self.query_cache_prunes_per_day: int = 0
-        self.total_sorts: int = 0
-        self.pct_temp_store_table: int = 0
-        self.joins_without_indexes: int = 0
-        self.joins_without_indexes_per_day: int = 0
-        self.pct_temp_disk: int = 0
-        self.table_cache_hit_rate: int = 0
-        self.pct_files_open: int = 0
-        self.pct_immediate_table_locks: int = 0
-        self.thread_cache_hit_rate: int = 0
-        self.total_reads: int = 0
-        self.total_writes: int = 0
-        self.pct_reads: int = 0
-        self.innodb_log_size_pct: int = 0
-        self.pct_read_efficiency: float = 0
-        self.pct_write_efficiency: float = 0
-        self.pct_innodb_buffer_used: float = 0
-        self.pct_binlog_cache: float = 0
-
-    @property
-    @funct.lru_cache()
-    def pct_writes(self):
-        return 100 - self.pct_reads
 
 
 def usage() -> None:
@@ -291,7 +92,7 @@ def usage() -> None:
     print(usage_msg)
 
 
-def header_print(option: Option) -> None:
+def header_print(option: tuner.Option) -> None:
     """Prints header
 
     :param Option option: options object
@@ -305,7 +106,7 @@ def header_print(option: Option) -> None:
     fp.pretty_print(header_message, option)
 
 
-def memory_error(option: Option) -> None:
+def memory_error(option: tuner.Option) -> None:
     """Prints error message and exits
 
     :param Option option: options object
@@ -377,7 +178,7 @@ def other_process_memory() -> int:
     return total_other_memory
 
 
-def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
+def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     """Gets name and memory of OS
 
     :param Option option:
@@ -588,7 +389,7 @@ def os_setup(option: Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     )
 
 
-def mysql_setup(option: Option) -> bool:
+def mysql_setup(option: tuner.Option) -> bool:
     """Sets up options for mysql
 
     :param Option option: options object
@@ -901,7 +702,7 @@ def tuning_info():
     pass
 
 
-def mysql_status_vars(option: Option) -> None:
+def mysql_status_vars(option: tuner.Option) -> None:
     """Gathers all status variables
 
     :param Option option: options object
@@ -1016,7 +817,7 @@ def os_release() -> str:
     return u"Unknown OS release"
 
 
-def fs_info(option: Option) -> None:
+def fs_info(option: tuner.Option) -> None:
     """Appends filesystem information to recommendations
 
     :param Option option: options object
@@ -1092,7 +893,7 @@ def is_virtual_machine() -> bool:
     return bool(is_vm)
 
 
-def info_cmd(command: typ.Sequence[str], option: Option, delimiter: str = u"") -> None:
+def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = u"") -> None:
     """Runs commands and prints information
 
     :param typ.Sequence[str] command: sequence of strings which constitute command
@@ -1111,7 +912,7 @@ def info_cmd(command: typ.Sequence[str], option: Option, delimiter: str = u"") -
         fp.info_print(f"{delimiter}{info}", option)
 
 
-def kernel_info(option: Option) -> None:
+def kernel_info(option: tuner.Option) -> None:
     params: typ.Sequence[str] = (
         u"fs.aio-max-nr",
         u"fs.aio-nr",
@@ -1176,7 +977,7 @@ def kernel_info(option: Option) -> None:
         fp.info_print(u"Max Number of AIO events is > 1M.", option)
 
 
-def system_info(option: Option) -> None:
+def system_info(option: tuner.Option) -> None:
     # TODO set results object
     fp.info_print(os_release(), option)
     if is_virtual_machine():
@@ -1296,7 +1097,7 @@ def system_info(option: Option) -> None:
     load_average: str = util.get(load_command)
 
 
-def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str], option: Option) -> None:
+def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str], option: tuner.Option) -> None:
     """Generates system level recommendations
 
     :param int physical_memory: amount of physical memory in bytes
@@ -1383,7 +1184,7 @@ def mysql_version() -> typ.Tuple[int, int, int]:
     return ver_major, ver_minor, ver_micro
 
 
-def security_recommendations(option: Option) -> None:
+def security_recommendations(option: tuner.Option) -> None:
     """Security Recommendations
 
     :param Option option: options object
@@ -1602,13 +1403,13 @@ def security_recommendations(option: Option) -> None:
         pass
 
 
-def replication_status(option: Option) -> None:
+def replication_status(option: tuner.Option) -> None:
     fp.subheader_print(u"Replication Metrics", option)
     # TODO get info from variable gathering function
     #fp.info_print(f"Galera Synchronous replication {option.}", option)
 
 
-def validate_mysql_version(option: Option) -> None:
+def validate_mysql_version(option: tuner.Option) -> None:
     """Check MySQL Version
 
     :param Option option: option object
@@ -1625,7 +1426,7 @@ def validate_mysql_version(option: Option) -> None:
         fp.good_print(f"Currently running supported MySQL version {full_version}", option)
 
 
-def check_architecture(option: Option, physical_memory: int) -> None:
+def check_architecture(option: tuner.Option, physical_memory: int) -> None:
     """Checks architecture of system
 
     :param Option option: options object
@@ -1656,7 +1457,7 @@ def check_architecture(option: Option, physical_memory: int) -> None:
         # TODO set architecture
 
 
-def check_storage_engines(option: Option) -> None:
+def check_storage_engines(option: tuner.Option) -> None:
     fp.subheader_print(u"Storage Engine Statistics", option)
     if option.skip_size:
         fp.info_print(u"Skipped due to --skip-size option", option)
@@ -1815,7 +1616,7 @@ def check_storage_engines(option: Option) -> None:
         # TODO etc
 
 
-def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: Stat, info: Info) -> None:
+def calculations(sess: orm.session.Session, calc: tuner.Calc, option: tuner.Option, stat: tuner.Stat, info: tuner.Info) -> None:
     if stat.questions < 1:
         fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
         raise NotImplementedError
@@ -2095,13 +1896,13 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
 
 
 # TODO finish mysql stats function
-def mysql_stats(option: Option) -> None:
+def mysql_stats(option: tuner.Option) -> None:
     fp.subheader_print(u"Performance Metrics", option)
     # Show uptime, queries per second, connections, traffic stats
 
 
 # TODO finish MyISAM recommendations
-def mysql_myisam(option: Option) -> None:
+def mysql_myisam(option: tuner.Option) -> None:
     """Recommendations for MyISAM
 
     :param Option option: options object
@@ -2110,7 +1911,7 @@ def mysql_myisam(option: Option) -> None:
     pass
 
 
-def mariadb_threadpool(option: Option, info: Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for ThreadPool
 
     :param Option option:
@@ -2165,7 +1966,7 @@ def mariadb_threadpool(option: Option, info: Info) -> typ.Sequence[typ.List[str]
     return recommendations, adjusted_vars
 
 
-def performance_memory(option: Option, info: Info, sess: orm.session.Session) -> int:
+def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> int:
     """Gets Performance schema memory taken
 
     :param Option option:
@@ -2193,11 +1994,11 @@ def performance_memory(option: Option, info: Info, sess: orm.session.Session) ->
 
 
 # TODO 1500 line function
-def mysql_pfs(option: Option) -> None:
+def mysql_pfs(option: tuner.Option) -> None:
     pass
 
 
-def recommendation_template(option: Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def recommendation_template(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for XXX
 
     :param Option option:
@@ -2209,7 +2010,7 @@ def recommendation_template(option: Option) -> typ.Sequence[typ.List[str], typ.L
     return recommendations, adjusted_vars
 
 
-def mariadb_ariadb(option: Option, info: Info, calc: Calc, stat: Stat) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, stat: tuner.Stat) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for AriaDB
 
     :param Option option:
@@ -2263,7 +2064,7 @@ def mariadb_ariadb(option: Option, info: Info, calc: Calc, stat: Stat) -> typ.Se
     return recommendations, adjusted_vars
 
 
-def mariadb_tokudb(option: Option, info: Info) -> None:
+def mariadb_tokudb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for TokuDB
 
     :param Option option:
@@ -2280,7 +2081,7 @@ def mariadb_tokudb(option: Option, info: Info) -> None:
     fp.info_print(u"TokuDB is enabled.", option)
 
 
-def mariadb_xtradb(option: Option, info: Info) -> None:
+def mariadb_xtradb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for XtraDB
 
     :param Option option:
@@ -2297,7 +2098,7 @@ def mariadb_xtradb(option: Option, info: Info) -> None:
     fp.info_print(u"XtraDB is enabled.", option)
 
 
-def mariadb_rocksdb(option: Option, info: Info) -> None:
+def mariadb_rocksdb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for RocksDB
 
     :param Option option:
@@ -2314,7 +2115,7 @@ def mariadb_rocksdb(option: Option, info: Info) -> None:
     fp.info_print(u"RocksDB is enabled.", option)
 
 
-def mariadb_spider(option: Option, info: Info) -> None:
+def mariadb_spider(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for Spider
 
     :param Option option:
@@ -2331,7 +2132,7 @@ def mariadb_spider(option: Option, info: Info) -> None:
     fp.info_print(u"Spider is enabled.", option)
 
 
-def mariadb_connect(option: Option, info: Info) -> None:
+def mariadb_connect(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for Connect
 
     :param Option option:
@@ -2348,7 +2149,7 @@ def mariadb_connect(option: Option, info: Info) -> None:
     fp.info_print(u"Connect is enabled.", option)
 
 
-def wsrep_options(option: Option, info: Info) -> typ.Sequence[str]:
+def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
     """
 
     :param Option option:
@@ -2369,7 +2170,7 @@ def wsrep_options(option: Option, info: Info) -> typ.Sequence[str]:
     return galera_options
 
 
-def wsrep_option(option: Option, info: Info, key: str) -> str:
+def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
     """
 
     :param Option option:
@@ -2393,7 +2194,7 @@ def wsrep_option(option: Option, info: Info, key: str) -> str:
     return memory_values[0]
 
 
-def gcache_memory(option: Option, info: Info) -> int:
+def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
     """
 
     :param Option option:
@@ -2403,7 +2204,7 @@ def gcache_memory(option: Option, info: Info) -> int:
     return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
 
 
-def mariadb_galera(option: Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for Galera
 
     :param Option option:
