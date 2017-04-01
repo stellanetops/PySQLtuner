@@ -95,7 +95,7 @@ def usage() -> None:
 def header_print(option: tuner.Option) -> None:
     """Prints header
 
-    :param Option option: options object
+    :param tuner.Option option: options object
     :return:
     """
     header_message: str = u"\n".join((
@@ -109,7 +109,7 @@ def header_print(option: tuner.Option) -> None:
 def memory_error(option: tuner.Option) -> None:
     """Prints error message and exits
 
-    :param Option option: options object
+    :param tuner.Option option: options object
     :return:
     """
     memory_error_message: str = u"\n".join((
@@ -181,7 +181,7 @@ def other_process_memory() -> int:
 def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, str]:
     """Gets name and memory of OS
 
-    :param Option option:
+    :param tuner.Option option:
     :return typ.Tuple[str, int, str, int, str, int, str]:
     """
     current_os: str = util.get(r"uname").strip()
@@ -392,7 +392,7 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
 def mysql_setup(option: tuner.Option) -> bool:
     """Sets up options for mysql
 
-    :param Option option: options object
+    :param tuner.Option option: options object
     :return bool: whether setup was successful
     """
     if option.mysqladmin:
@@ -702,18 +702,16 @@ def tuning_info():
     pass
 
 
-def mysql_status_vars(option: tuner.Option) -> None:
+def mysql_status_vars(option: tuner.Option, sess: orm.session.Session) -> None:
     """Gathers all status variables
 
-    :param Option option: options object
+    :param tuner.Option option: options object
+    :param orm.session.Session sess: session
     :return:
     """
     # We need to initiate at least one query so that our data is usable
     try:
-        connect_params: typ.Dict[str, str] = util.connection_params()
-        engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
-        with util.session_scope(engine) as sess:
-            sess.execute(u"SELECT VERSION()")
+        sess.execute(u"SELECT VERSION()")
     except Exception:
         fp.bad_print(u"Not enough privileges for running PySQLTuner", option)
         raise
@@ -761,7 +759,10 @@ def is_open_port(port: str) -> bool:
     :return bool: whether the port specified is open
     """
     port_pattern: str = f"^{port}$"
-    return any(re.search(port_pattern, open_port) for open_port in opened_ports())
+    return any(
+        re.search(port_pattern, open_port)
+        for open_port in opened_ports()
+    )
 
 
 def os_release() -> str:
@@ -817,12 +818,15 @@ def os_release() -> str:
     return u"Unknown OS release"
 
 
-def fs_info(option: tuner.Option) -> None:
-    """Appends filesystem information to recommendations
+def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for filesystem
 
-    :param Option option: options object
-    :return:
+    :param tuner.Option option:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
     s_info: typ.Sequence[str] = util.get((
         u"df",
         u"-P",
@@ -842,11 +846,11 @@ def fs_info(option: tuner.Option) -> None:
     info_filters: typ.Sequence[typ.Tuple[str, str]] = (
         (r".*\s(\d+)%\s+(.*)", u"\1\t\2")
     )
-    for info_filter, info_replace in info_filters:
-        s_info: typ.Sequence[str] = tuple(
-            re.sub(info_filter, info_replace, info)
-            for info in s_info
-        )
+    s_info: typ.Sequence[str] = tuple(
+        re.sub(info_filter, info_replace, info)
+        for info in s_info
+        for info_filter, info_replace in info_filters
+    )
 
     for info in s_info:
         if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)", info):
@@ -857,7 +861,9 @@ def fs_info(option: tuner.Option) -> None:
             mount_point: str = matched.group(2)
             if int(matched.group(1)) > 85:
                 fp.bad_print(f"Mount point {mount_point} is using {space_perc} % total space", option)
-                # TODO append to recommendations
+                recommendations.append(
+                    f"Add some space to {mount_point} mount point."
+                )
             else:
                 fp.info_print(f"Mount point {mount_point} is using {space_perc} % total space", option)
 
@@ -872,11 +878,15 @@ def fs_info(option: tuner.Option) -> None:
             mount_point: str = matched.group(2)
             if int(matched.group(1)) > 85:
                 fp.bad_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", option)
-                # TODO append to recommendations
+                recommendations.append(
+                    f"Add some space to {mount_point} mount point."
+                )
             else:
                 fp.info_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", option)
 
             # TODO result object assigning
+
+    return recommendations, adjusted_vars
 
 
 def is_virtual_machine() -> bool:
@@ -897,7 +907,7 @@ def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = 
     """Runs commands and prints information
 
     :param typ.Sequence[str] command: sequence of strings which constitute command
-    :param Option option: options object
+    :param tuner.Option option: options object
     :param str delimiter: delimiter
     :return:
     """
@@ -912,7 +922,15 @@ def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = 
         fp.info_print(f"{delimiter}{info}", option)
 
 
-def kernel_info(option: tuner.Option) -> None:
+def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for kernel
+
+    :param tuner.Option option:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
     params: typ.Sequence[str] = (
         u"fs.aio-max-nr",
         u"fs.aio-nr",
@@ -941,7 +959,8 @@ def kernel_info(option: tuner.Option) -> None:
     )
     if int(util.get(sysctl_swap_command)) > 10:
         fp.bad_print(u"Swappiness is > 10, please consider having a value lower than 10", option)
-        # TODO recommendation appending and adjusted variables
+        recommendations.append(u"Setup swappiness  to be <= 10")
+        adjusted_vars.append(u"vm.swappiness <= 10 (echo 0 > /proc/sys/vm/swappiness)")
     else:
         fp.info_print(u"Swappiness is < 10.", option)
 
@@ -956,7 +975,10 @@ def kernel_info(option: tuner.Option) -> None:
 
     if os.path.isfile(u"/proc/sys/sunrpc") and (not tcp_slot_entries or int(tcp_slot_entries) < 100):
         fp.bad_print("Initial TCP slot entries is < 1M, please consider having a value greater than 100", option)
-        # TODO recommendation appending and adjusting variables
+        recommendations.append(u"Setup Initial TCP slot entries > 100")
+        adjusted_vars.append(
+            u"sunrpc.tcp_slot_table_entries > 100 (echo 128 > /proc/sys/sunrpc/tcp_slot_table_entries)"
+        )
     else:
         fp.info_print(u"TCP slot entries is > 100.", option)
 
@@ -972,11 +994,15 @@ def kernel_info(option: tuner.Option) -> None:
                 u"Max running total of the number of events is < 1M,"
                 u"please consider having a value greater than 1M"
         ), option)
-        # TODO recommendation appending and adjusting variables
+        recommendations.append(u"Setup max running number events greater than 1M")
+        adjusted_vars.append(u"fs.aio-max-nr > 1M (echo 1048576 > /proc/sys/fs/aio-max-nr)")
     else:
         fp.info_print(u"Max Number of AIO events is > 1M.", option)
 
+    return recommendations, adjusted_vars
 
+
+# TODO finish system info function
 def system_info(option: tuner.Option) -> None:
     # TODO set results object
     fp.info_print(os_release(), option)
@@ -1097,21 +1123,29 @@ def system_info(option: tuner.Option) -> None:
     load_average: str = util.get(load_command)
 
 
-def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str], option: tuner.Option) -> None:
+def system_recommendations(
+    physical_memory: int,
+    banned_ports: typ.Sequence[str],
+    option: tuner.Option
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Generates system level recommendations
 
     :param int physical_memory: amount of physical memory in bytes
     :param typ.Sequence[str] banned_ports: sequence of banned ports
-    :param Option option: options object
-    :return:
+    :param tuner.Option option: options object
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
     if not option.sys_stat:
-        return None
+        return recommendations, adjusted_vars
 
     os_name: str = platform.system()
     if not re.match(r"Linux", os_name, re.IGNORECASE):
         fp.info_print(u"Skipped due to non Linux Server", option)
-        return None
+        return recommendations, adjusted_vars
 
     fp.pretty_print(u"Look for related Linux system recommendations", option)
 
@@ -1126,7 +1160,10 @@ def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str]
             f"{util.percentage(other_proc_mem, physical_memory)}% "
             f"({util.bytes_to_string(other_proc_mem)} / {util.bytes_to_string(physical_memory)})"
         ), option)
-        # TODO recommendations and adjusted variables
+        recommendations.append(u"Consider stopping or dedicate server for additional process other than mysqld")
+        adjusted_vars.append(
+            u"DON'T APPLY SETTINGS BECAUSE THERE ARE TOO MANY PROCESSES RUNNING ON THIS SERVER. OOM KILL CAN OCCUR!"
+        )
     else:
         fp.info_print((
             u"Other user process except mysqld used more than 15% of total physical memory "
@@ -1143,85 +1180,94 @@ def system_recommendations(physical_memory: int, banned_ports: typ.Sequence[str]
                 f"There are too many listening ports: "
                 f"{len(open_ports)} opened > {option.max_port_allowed} allowed"
             ), option)
-            # TODO recommendations
+            recommendations.append(
+                u"Consider dedicating a server for your database installation with less services running on!"
+           )
         else:
             fp.info_print(f"There are less than {option.max_port_allowed} opened ports on this server", option)
 
     for banned_port in banned_ports:
         if is_open_port(banned_port):
             fp.bad_print(f"Banned port: {banned_port} is opened.", option)
-            # TODO recommendations
+            recommendations.append(f"Port {banned_port} is opened. Consider stopping program handling this port.")
         else:
             fp.good_print(f"{banned_port} is not opened.", option)
 
-    fs_info(option)
-    kernel_info(option)
+    fs_recs, fs_vars = fs_info(option)
+    kern_recs, kern_vars = kernel_info(option)
+
+    recommendations.extend(fs_recs)
+    recommendations.extend(kern_recs)
+
+    adjusted_vars.extend(fs_vars)
+    adjusted_vars.extend(kern_vars)
+
+    return recommendations, adjusted_vars
 
 
-def mysql_version() -> typ.Tuple[int, int, int]:
+def mysql_version(sess: orm.session.Session, info: tuner.Info) -> typ.Tuple[int, int, int]:
     """Finds version of mysql being used
+
+    :param orm.session.Session sess: session object
+    :param tuner.Info info: info object
 
     :return typ.Tuple[int, int, int]: major, minor, and micro version numbers
     """
-    version_query: str = u"\n".join((
-        u"SELECT",
-        u"@@VERSION AS `VERSION`",
-    ))
-    connect_params: typ.Dict[str, str] = util.connection_params()
-    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
-    with util.session_scope(engine) as sess:
-        result = sess.execute(version_query)
-        Version = clct.namedtuple(u"Version", result.keys())
-        versions: typ.Sequence[str] = [
-            Version(*version).VERSION.split("-")[0].split(".")
-            for version in result.fetchall()
-        ]
-        ver_major, ver_minor, ver_micro = [
-            int(version)
-            for version in versions[0]
-        ]
+    version_query_file: str = osp.join(info.script_dir, u"version-query.sql")
+
+    with open(version_query_file, mode=u"r", encoding=u"utf-8") as vqf:
+        version_query: str = vqf.read()
+
+    result = sess.execute(version_query)
+    Version = clct.namedtuple(u"Version", result.keys())
+    versions: typ.Sequence[str] = [
+        Version(*version).VERSION.split("-")[0].split(".")
+        for version in result.fetchall()
+    ]
+    ver_major, ver_minor, ver_micro = [
+        int(version)
+        for version in versions[0]
+    ]
 
     return ver_major, ver_minor, ver_micro
 
 
-def security_recommendations(option: tuner.Option) -> None:
+def security_recommendations(
+    option: tuner.Option,
+    info: tuner.Info,
+    sess: orm.session.Session
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Security Recommendations
 
-    :param Option option: options object
-    :return:
-    """
-    ver_major, ver_minor, ver_micro = mysql_version()
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param orm.session.Session sess:
 
-    connect_params: typ.Dict[str, str] = util.connection_params()
-    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
 
     fp.subheader_print(u"Security Recommendations", option)
     if option.skip_password:
         fp.info_print(u"Skipped due to --skip-password option", option)
-        return None
+        return recommendations, adjusted_vars
 
     password_column: str = u"password"
-    if (ver_major, ver_minor) >= (5, 7):
+    query_file_version: str = u"5_4"
+    if (info.ver_major, info.ver_minor) >= (5, 7):
         password_column = u"authentication_string"
 
     # Looking for Anonymous users
-    mysql_user_query: str = u"\n".join((
-        u"SELECT",
-        u"CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-        u"FROM",
-        u"`mysql`.`user` AS `usr`",
-        u"WHERE",
-        u"TRIM(`usr`.`USER`) = ''",
-        u"OR",
-        u"`usr`.`USER` IS NULL;"
-    ))
-    with util.session_scope(engine) as sess:
-        result = sess.execute(mysql_user_query)
-        User = clct.namedtuple(u"User", result.keys())
-        users: typ.Sequence[str] = [
-            User(*user).GRANTEE
-            for user in result.fetchall()
-        ]
+    mysql_user_query_file: str = osp.join(info.query_dir, u"user-query.sql")
+    with open(mysql_user_query_file, mode=u"r", encoding=u"utf-8") as muqf:
+        mysql_user_query: str = muqf.read()
+    result = sess.execute(mysql_user_query)
+    User = clct.namedtuple(u"User", result.keys())
+    users: typ.Sequence[str] = [
+        User(*user).GRANTEE
+        for user in result.fetchall()
+    ]
 
     fp.debug_print(f"{users}", option)
 
@@ -1231,47 +1277,30 @@ def security_recommendations(option: tuner.Option) -> None:
         # TODO recommendation
     else:
         fp.good_print(u"There are no anonymous accounts for any database users", option)
-        if (ver_major, ver_minor, ver_micro) <= (5, 1):
+        if (info.ver_major, info.ver_minor, info.ver_micro) <= (5, 1):
             fp.bad_print(u"No more password checks for MySQL <= 5.1", option)
             fp.bad_print(u"MySQL version <= 5.1 are deprecated and are at end of support", option)
-            return None
+            return recommendations, adjusted_vars
 
     # Looking for Empty Password
-    if (ver_major, ver_minor, ver_micro) >= (5, 5):
-        mysql_password_query: str = u"\n".join((
-            u"SELECT",
-            u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-            u"FROM",
-            u"  `mysql`.`user` AS `usr`",
-            u"WHERE",
-            f"    `{password_column}` = ''",
-            u"  OR",
-            f"    `{password_column}` IS NULL",
-            u"  AND",
-            u"    `PLUGIN` NOT IN (",
-            u"        'unix_socket',",
-            u"        'win_socket'",
-            u"     );"
-        ))
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
+        query_file_version = u"5_5"
+        if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
+            mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_7.sql")
+        else:
+            mysql_password_query_file: str = osp.join(info.query_dir, f"password-query-{query_file_version}.sql")
     else:
-        mysql_password_query: str = u"\n".join((
-            u"SELECT",
-            u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-            u"FROM",
-            u"  `mysql`.`user` AS `usr`",
-            u"WHERE",
-            f"    `{password_column}` = ''",
-            u"  OR",
-            f"    `{password_column}` IS NULL;"
-        ))
+        mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_4.sql")
 
-    with util.session_scope(engine) as sess:
-        result = sess.execute(mysql_password_query)
-        Password = clct.namedtuple(u"Password", result.keys())
-        password_users: typ.Sequence[str] = [
-            Password(*password).GRANTEE
-            for password in result.fetchall()
-        ]
+    with open(mysql_password_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
+        mysql_password_query: str = mpqf.read()
+
+    result = sess.execute(mysql_password_query)
+    Password = clct.namedtuple(u"Password", result.keys())
+    password_users: typ.Sequence[str] = [
+        Password(*password).GRANTEE
+        for password in result.fetchall()
+    ]
 
     if password_users:
         for user in password_users:
@@ -1280,69 +1309,47 @@ def security_recommendations(option: tuner.Option) -> None:
     else:
         fp.good_print(u"All database users have passwords assigned", option)
 
-    if (ver_major, ver_minor, ver_micro) >= (5, 7):
-        mysql_plugin_query: str = u"\n".join((
-            u"SELECT",
-            u"  COUNT(*) AS `COUNT`",
-            u"FROM",
-            u"  `information_schema`.`PLUGINS`",
-            u"WHERE",
-            f"    `PLUGIN_NAME` = 'validate_password'",
-            u"  AND",
-            f"    `PLUGIN_STATUS` = 'ACTIVE';"
-        ))
-        with util.session_scope(engine) as sess:
-            result = sess.execute(mysql_plugin_query)
-            Plugin = clct.namedtuple(u"Plugin", result.keys())
-            plugin_amount: typ.Sequence[int] = int(*[
-                Plugin(*plugin).COUNT
-                for plugin in result.fetchall()
-            ])
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
+        mysql_plugin_query_file: str = osp.join(info.query_dir, u"plugin-query.sql")
+        with open(mysql_plugin_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
+            mysql_plugin_query: str = mpqf.read()
+
+        result = sess.execute(mysql_plugin_query)
+        Plugin = clct.namedtuple(u"Plugin", result.keys())
+        plugin_amount: typ.Sequence[int] = int(*[
+            Plugin(*plugin).COUNT
+            for plugin in result.fetchall()
+        ])
 
         if plugin_amount >= 1:
             fp.info_print(u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated", option)
-            return None
+            return recommendations, adjusted_vars
 
     # Looking for User with user/ uppercase /capitalise user as password
-    mysql_capitalize_query: str = u"\n".join((
-        u"SELECT",
-        u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-        u"FROM",
-        u"  `mysql`.`user` AS `usr`",
-        u"WHERE",
-        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(`usr`.`USER`)",
-        u"  OR",
-        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(UPPER(`usr`.`USER`))",
-        u"  OR",
-        f"    CAST(`{password_column}` AS BINARY) = PASSWORD(",
-        u"      CONCAT(UPPER(LEFT(`usr`.`USER`, 1)), SUBSTRING(`usr`.`USER`, 2, LENGTH(`usr`.`USER`)))",
-        u"    );"
-    ))
-    with util.session_scope(engine) as sess:
-        result = sess.execute(mysql_capitalize_query)
-        Capitalize = clct.namedtuple(u"Capitalize", result.keys())
-        capitalize_users: typ.Sequence[Capitalize] = [Capitalize(*user).GRANTEE for user in result.fetchall()]
+    mysql_capitalize_query_file = osp.join(info.query_dir, f"capitalize-query-{query_file_version}.sql")
+    with open(mysql_capitalize_query_file, mode=u"r", encoding=u"utf-8") as mcqf:
+        mysql_capitalize_query: str = mcqf.read()
+    result = sess.execute(mysql_capitalize_query)
+    Capitalize = clct.namedtuple(u"Capitalize", result.keys())
+    capitalize_users: typ.Sequence[Capitalize] = [
+        Capitalize(*user).GRANTEE
+        for user in result.fetchall()
+    ]
 
     if capitalize_users:
         for user in capitalize_users:
             fp.bad_print(f"User '{user}' has user name as password", option)
         # TODO recommendations
 
-    mysql_host_query: str = u"\n".join((
-        u"SELECT",
-        u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-        u"FROM",
-        u"  `mysql`.`user` AS `usr`",
-        u"WHERE",
-        f"    `usr`.`HOST` = '%';"
-    ))
-    with util.session_scope(engine) as sess:
-        result = sess.execute(mysql_host_query)
-        Host = clct.namedtuple(u"Host", result.keys())
-        host_users: typ.Sequence[str] = [
-            Host(*user).GRANTEE
-            for user in result.fetchall()
-        ]
+    mysql_host_query_file = osp.join(info.query_dir, u"host-query.sql")
+    with open(mysql_host_query_file, mode=u"r", encoding=u"utf-8") as mhqf:
+        mysql_host_query: str = mhqf.read()
+    result = sess.execute(mysql_host_query)
+    Host = clct.namedtuple(u"Host", result.keys())
+    host_users: typ.Sequence[str] = [
+        Host(*user).GRANTEE
+        for user in result.fetchall()
+    ]
 
     if host_users:
         for user in host_users:
@@ -1351,7 +1358,7 @@ def security_recommendations(option: tuner.Option) -> None:
 
     if os.path.isfile(option.basic_passwords_file):
         fp.bad_print(u"There is no basic password file list!", option)
-        return None
+        return recommendations, adjusted_vars
 
     with open(option.basic_passwords_file, mode=u"r", encoding=u"utf-8") as bpf:
         passwords: typ.Sequence[str] = bpf.readlines()
@@ -1379,13 +1386,12 @@ def security_recommendations(option: tuner.Option) -> None:
                 f"      CONCAT(UPPER(LEFT({password}, 1)), SUBSTRING({password}, 2, LENGTH({password})))",
                 u"    );"
             ))
-            with util.session_scope(engine) as sess:
-                result = sess.execute(mysql_capital_password_query)
-                CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
-                capital_password_users: typ.Sequence[str] = [
-                    CapitalPassword(*user).GRANTEE
-                    for user in result.fetchall()
-                ]
+            result = sess.execute(mysql_capital_password_query)
+            CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
+            capital_password_users: typ.Sequence[str] = [
+                CapitalPassword(*user).GRANTEE
+                for user in result.fetchall()
+            ]
 
             fp.debug_print(f"There are {len(capital_password_users)} items.", option)
             if capital_password_users:
@@ -1412,7 +1418,7 @@ def replication_status(option: tuner.Option) -> None:
 def validate_mysql_version(option: tuner.Option) -> None:
     """Check MySQL Version
 
-    :param Option option: option object
+    :param tuner.Option option: option object
     :return:
     """
     ver_major, ver_minor, ver_micro = mysql_version()
@@ -1429,7 +1435,7 @@ def validate_mysql_version(option: tuner.Option) -> None:
 def check_architecture(option: tuner.Option, physical_memory: int) -> None:
     """Checks architecture of system
 
-    :param Option option: options object
+    :param tuner.Option option: options object
     :param int physical_memory: Physical memory in bytes
     :return:
     """
@@ -1736,7 +1742,7 @@ def calculations(sess: orm.session.Session, calc: tuner.Calc, option: tuner.Opti
         calc.total_myisam_indexes = size
         calc.total_ariadb_indexes = 0
     elif info.ver_major >= 5:
-        myisam_index_query_file: str = osp.abspath(info.script_dir, u"../query/myisam-index-query.sql")
+        myisam_index_query_file: str = osp.join(info.query_dir, u"myisam-index-query.sql")
         with open(myisam_index_query_file, mode=u"r", encoding=u"utf-8") as miqf:
             myisam_query: str = miqf.read()
             result = sess.execute(myisam_query)
@@ -1752,7 +1758,7 @@ def calculations(sess: orm.session.Session, calc: tuner.Calc, option: tuner.Opti
             for index_size in index_sizes:
                 calc.total_myisam_indexes += index_size
 
-        ariadb_index_query_file: str = osp.abspath(info.script_dir, u"../query/aria-index-query.sql")
+        ariadb_index_query_file: str = osp.join(info.query_dir, u"aria-index-query.sql")
         with open(ariadb_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
             ariadb_query: str = aqf.read()
             result = sess.execute(ariadb_query)
@@ -1905,7 +1911,7 @@ def mysql_stats(option: tuner.Option) -> None:
 def mysql_myisam(option: tuner.Option) -> None:
     """Recommendations for MyISAM
 
-    :param Option option: options object
+    :param tuner.Option option: options object
     :return:
     """
     pass
@@ -1914,8 +1920,8 @@ def mysql_myisam(option: tuner.Option) -> None:
 def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for ThreadPool
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -1969,8 +1975,8 @@ def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[t
 def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> int:
     """Gets Performance schema memory taken
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :param orm.session.Session sess:
     :return:
     """
@@ -1978,7 +1984,7 @@ def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session
     if not info.performance_schema:
         return 0
 
-    pf_memory_query_file: str = osp.abspath(info.script_dir, u"../query/performance_schema-memory-query.sql")
+    pf_memory_query_file: str = osp.join(info.query_dir, u"performance_schema-memory-query.sql")
     with open(pf_memory_query_file, mode=u"r", encoding=u"utf-8") as pfmqf:
         pf_memory_query: str = pfmqf.read()
         result = sess.execute(pf_memory_query)
@@ -2001,7 +2007,7 @@ def mysql_pfs(option: tuner.Option) -> None:
 def recommendation_template(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for XXX
 
-    :param Option option:
+    :param tuner.Option option:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2013,10 +2019,10 @@ def recommendation_template(option: tuner.Option) -> typ.Sequence[typ.List[str],
 def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, stat: tuner.Stat) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for AriaDB
 
-    :param Option option:
-    :param Info info:
-    :param Calc calc:
-    :param Stat stat
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param tuner.Calc calc:
+    :param tuner.Stat stat
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2067,8 +2073,8 @@ def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, sta
 def mariadb_tokudb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for TokuDB
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     fp.subheader_print(u"TokuDB Metrics", option)
@@ -2084,8 +2090,8 @@ def mariadb_tokudb(option: tuner.Option, info: tuner.Info) -> None:
 def mariadb_xtradb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for XtraDB
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     fp.subheader_print(u"XtraDB Metrics", option)
@@ -2101,8 +2107,8 @@ def mariadb_xtradb(option: tuner.Option, info: tuner.Info) -> None:
 def mariadb_rocksdb(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for RocksDB
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     fp.subheader_print(u"RocksDB Metrics", option)
@@ -2118,8 +2124,8 @@ def mariadb_rocksdb(option: tuner.Option, info: tuner.Info) -> None:
 def mariadb_spider(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for Spider
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     fp.subheader_print(u"Spider Metrics", option)
@@ -2135,8 +2141,8 @@ def mariadb_spider(option: tuner.Option, info: tuner.Info) -> None:
 def mariadb_connect(option: tuner.Option, info: tuner.Info) -> None:
     """Recommendations for Connect
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     fp.subheader_print(u"Connect Metrics", option)
@@ -2152,8 +2158,8 @@ def mariadb_connect(option: tuner.Option, info: tuner.Info) -> None:
 def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
     """
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     if not info.wsrep_provider_options:
@@ -2173,8 +2179,8 @@ def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
 def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
     """
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :param str key:
     :return str:
     """
@@ -2197,8 +2203,8 @@ def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
 def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
     """
 
-    :param Option option:
-    :param Info info:
+    :param tuner.Option option:
+    :param tuner.Info info:
     :return:
     """
     return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
@@ -2207,7 +2213,7 @@ def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
 def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for Galera
 
-    :param Option option:
+    :param tuner.Option option:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []

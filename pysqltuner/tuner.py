@@ -72,7 +72,8 @@ class Info:
         self.ver_minor: int = 0
         self.ver_micro: int = 0
         self.data_dir: str = None
-        self.script_dir: str = osp.dirname(osp.realpath(__file__))
+        self.script_dir: str = osp.dirname(__file__)
+        self.query_dir: str = osp.join(osp.dirname(__file__), u"../query")
         self.max_connections: int = 0
         self.read_buffer_size: int = 0
         self.read_rnd_buffer_size: int = 0
