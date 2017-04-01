@@ -94,6 +94,10 @@ class Info:
         self.query_cache_size: int = 0
         self.aria_pagecache_buffer_size: int = 0
         self.key_cache_block_size: int = 0
+        self.open_files_limit: int = 0
+        self.have_innodb: bool = True
+        self.innodb_log_file_size: int = 0
+        self.innodb_log_files_in_group: int = 0
 
 
 class Stat:
@@ -112,6 +116,30 @@ class Stat:
         self.key_writes: int = 0
         self.key_write_requests: int = 0
         self.du_flags: str = None
+        self.query_cache_hits: int = 0
+        self.query_cache_free_memory: int = 0
+        self.query_cache_low_memory_prunes: int = 0
+        self.com_select: int = 0
+        self.com_insert: int = 0
+        self.com_delete: int = 0
+        self.com_update: int = 0
+        self.com_replace: int = 0
+        self.uptime: int = 0
+        self.sort_scan: int = 0
+        self.sort_range: int = 0
+        self.sort_merge_passes: int = 0
+        self.select_range_check: int = 0
+        self.select_full_join: int = 0
+        self.created_temp_tables: int = 0
+        self.created_temp_disk_tables: int = 0
+        self.open_tables: int = 0
+        self.opened_tables: int = 0
+        self.open_files: int = 0
+        self.immediate_table_locks: int = 0
+        self.waited_table_locks: int = 0
+        self.created_threads: int = 0
+        self.buffer_pool_reads: int = 1
+        self.buffer_pool_read_requests: int = 1
 
 
 class Calc:
@@ -134,6 +162,27 @@ class Calc:
         self.pct_write_keys_from_memory: float = 0
         self.total_myisam_indexes: int = 0
         self.total_aria_indexes: int = 0
+        self.query_cache_efficiency: float = 0
+        self.pct_query_cache_used: float = 0
+        self.query_cache_prunes_per_day: int = 0
+        self.total_sorts: int = 0
+        self.pct_temp_store_table: int = 0
+        self.joins_without_indexes: int = 0
+        self.joins_without_indexes_per_day: int = 0
+        self.pct_temp_disk: int = 0
+        self.table_cache_hit_rate: int = 0
+        self.pct_files_open: int = 0
+        self.pct_immediate_table_locks: int = 0
+        self.thread_cache_hit_rate: int = 0
+        self.total_reads: int = 0
+        self.total_writes: int = 0
+        self.pct_reads: int = 0
+        self.innodb_log_size_pct: int = 0
+        self.pct_read_efficiency: float = 0
+
+    @property
+    def pct_writes(self):
+        return 100 - self.pct_reads
 
 
 def usage() -> None:
@@ -1893,8 +1942,100 @@ def calculations(sess: orm.session.Session, calc: Calc, option: Option, stat: St
     if not calc.total_aria_indexes:
         calc.total_aria_indexes = 1
 
-
     # Query Cache
+    if info.ver_major >= 4:
+        calc.query_cache_efficiency = (round(100 * (
+            stat.query_cache_hits / (stat.com_select + stat.query_cache_hits)
+        ), ndigits=1))
+
+        if info.query_cache_size:
+            calc.pct_query_cache_used = (round(100 - (
+                (stat.query_cache_free_memory / info.query_cache_size * 100)
+            ), ndigits=1))
+
+        if stat.query_cache_low_memory_prunes != 0:
+            calc.query_cache_prunes_per_day = int(
+                stat.query_cache_low_memory_prunes / stat.uptime
+            )
+
+    # Sorting
+    calc.total_sorts = stat.sort_scan + stat.sort_range
+    if calc.total_sorts > 0:
+        calc.pct_temp_sort_table = int(
+            stat.sort_merge_passes / calc.total_sorts * 100
+        )
+
+    # Joins
+    calc.joins_without_indexes = stat.select_range_check + stat.select_full_join
+    calc.joins_without_indexes_per_day = int(
+        calc.joins_without_indexes / stat.uptime / 86400
+    )
+
+    # Temporary tables
+    if stat.created_temp_tables > 0:
+        if stat.created_temp_disk_tables > 0:
+            calc.pct_temp_disk = int(
+                stat.created_temp_disk_tables / stat.created_temp_tables * 100
+            )
+
+    # Table cache
+    if stat.opened_tables > 0:
+        calc.table_cache_hit_rate = int(
+            stat.open_tables / stat.opened_tables * 100
+        )
+    else:
+        calc.table_cache_hit_rate = 100
+
+    # Open files
+    if info.open_files_limit > 0:
+        calc.pct_files_open = int(
+            stat.open_files / info.open_files_limit * 100
+        )
+
+    # Table locks
+    if stat.immediate_table_locks > 0:
+        if stat.waited_table_locks == 0:
+            calc.pct_immediate_table_locks = 100
+        else:
+            calc.pct_immediate_table_locks = int(
+                stat.immediate_table_locks / (stat.waited_table_locks + stat.immediate_table_locks) * 100
+            )
+
+    # Thread cache
+    calc.thread_cache_hit_rate = int(100 - (
+        stat.created_threads / stat.connections * 100
+    ))
+
+    # Other
+    if stat.connections > 0:
+        calc.pct_connections_aborted = int(
+            stat.aborted_connections / stat.connections * 100
+        )
+
+    if stat.questions > 0:
+        calc.total_reads = stat.com_select
+        calc.total_writes = (
+            stat.com_delete +
+            stat.com_insert +
+            stat.com_update +
+            stat.com_replace
+        )
+
+        if stat.total_reads == 0:
+            calc.pct_reads = 0
+        else:
+            calc.pct_reads = int(
+                calc.total_reads / (calc.total_reads + calc.total_writes) * 100
+            )
+
+    # InnoDB
+    if info.have_innodb:
+        calc.innodb_log_size_pct = int(
+            info.innodb_log_file_size * info.innodb_log_files_in_group / info.innodb_buffer_pool_size * 100
+        )
+
+    # InnoDB Buffer pool read cache efficiency
+    calc.pct_read_efficiency = util.percentage()
 
 
 def mysql_stats(option: Option) -> None:
