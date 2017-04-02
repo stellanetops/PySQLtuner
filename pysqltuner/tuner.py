@@ -4,6 +4,7 @@ Module to contain the tuner classes
 
 import collections as clct
 import functools as funct
+import getpass as gp
 import os
 import os.path as osp
 import sqlalchemy.orm as orm
@@ -12,12 +13,19 @@ import typing as typ
 
 class Option:
     def __init__(self) -> None:
+        self.me: str = gp.getuser()
         self.silent: bool = False
-        self.no_color: bool = False
+        self._no_color: bool = False
         self.no_good: bool = False
         self.no_info: bool = False
         self.no_bad: bool = False
         self.debug: bool = False
+        self.good_out: str = None
+        self.bad_out: str = None
+        self.info_out: str = None
+        self.debug_out: str = None
+        self.cmd_out: str = None
+        self.end_out: str = None
         self.force_mem: int = None
         self.force_swap: int = None
         self.host: str = None
@@ -81,12 +89,39 @@ class Option:
     @funct.lru_cache()
     @property
     def banned_ports(self) -> typ.Sequence[str]:
-        if self._banned_ports:
-            return tuple(
+        return self._banned_ports
+
+    @banned_ports.setter
+    def banned_ports(self, value: str) -> None:
+        if value:
+            self._banned_ports = tuple(
                 banned_port
-                for banned_port in self._banned_ports.split(u",")
+                for banned_port in value.split(u",")
             )
-        return []
+
+    @funct.lru_cache()
+    @property
+    def no_color(self) -> bool:
+        return self._no_color
+
+    @no_color.setter
+    def no_color(self, value: bool) -> None:
+        self._no_color = value
+
+        if not self._no_color:
+            self.good_out = u"[\e[0;32mOK\e[0m]"
+            self.bad_out = u"[\e[0;31m!!\e[0m]"
+            self.info_out = u"[\e[0;34m--\e[0m]"
+            self.debug_out = u"[\e[0;31mDG\e[0m]"
+            self.cmd_out = f"\e[1;32m[CMD]({self.me})"
+            self.end_out = u"\e[0m"
+        else:
+            self.good_out = u"[OK]"
+            self.bad_out = u"[!!]"
+            self.info_out = u"[--]"
+            self.debug_out = u"[DG]"
+            self.cmd_out = f"[CMD]({self.me})"
+            self.end_out = u""
 
 
 class Info:

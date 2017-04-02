@@ -3,66 +3,16 @@ Module with modified print functions to allow color changing
 Highlights different aspects of output
 """
 
-import functools as funct
-import getpass as gp
 import re
 import typing as typ
 import pysqltuner.tuner as tuner
 
 
 class Color:
-    """Colors for output printing
-    """
-    @staticmethod
-    @property
-    def red() -> str:
-        return u"\e[0;31m"
-
-    @staticmethod
-    @property
-    def green() -> str:
-        return u"\e[0;32m"
-
-    @staticmethod
-    @property
-    def end() -> str:
-        return u"\e[0m"
-
-
-me: str = gp.getuser()
-opt: tuner.Option = tuner.Option()
-
-
-class LineEdge:
-    @staticmethod
-    @funct.lru_cache()
-    def good(no_color: bool) -> str:
-        return u"[\e[0;32mOK\e[0m]" if not no_color else u"[OK]"
-
-    @staticmethod
-    @funct.lru_cache()
-    def bad(no_color: bool) -> str:
-        return u"[\e[0;31m!!\e[0m]" if not no_color else u"[!!]"
-
-    @staticmethod
-    @funct.lru_cache()
-    def info(no_color: bool) -> str:
-        return u"[\e[0;34m--\e[0m]" if not no_color else u"[--]"
-
-    @staticmethod
-    @funct.lru_cache()
-    def debug(no_color: bool) -> str:
-        return u"[\e[0;31mDG\e[0m]" if not no_color else u"[DG]"
-
-    @staticmethod
-    @funct.lru_cache()
-    def cmd(no_color: bool) -> str:
-        return f"\e[1;32m[CMD]({me})" if not no_color else f"[CMD]({me})"
-
-    @staticmethod
-    @funct.lru_cache()
-    def end(no_color: bool) -> str:
-        return u"\e[0m" if not no_color else u""
+    """Colors for output printing"""
+    red: str = u"\e[0;31m"
+    green: str = u"\e[0;32m"
+    end: str = u"\e[0m"
 
 
 def color_wrap(line: str, color: str) -> str:
@@ -120,7 +70,7 @@ def good_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_good:
-        good_line: str = u" ".join((LineEdge.good(option.no_color), line))
+        good_line: str = u" ".join((option.good_out, line))
         pretty_print(good_line, option)
 
 
@@ -132,7 +82,7 @@ def bad_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_bad:
-        bad_line: str = u" ".join((LineEdge.bad(option.no_color), line))
+        bad_line: str = u" ".join((option.bad_out, line))
         pretty_print(bad_line, option)
 
 
@@ -144,7 +94,7 @@ def info_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if not option.no_info:
-        info_line: str = u" ".join((LineEdge.info(option.no_color), line))
+        info_line: str = u" ".join((option.info_out, line))
         pretty_print(info_line, option)
 
 
@@ -156,7 +106,7 @@ def debug_print(line: str, option: tuner.Option) -> None:
     :return:
     """
     if option.debug:
-        debug_line: str = u" ".join((LineEdge.debug(option.no_color), line))
+        debug_line: str = u" ".join((option.debug_out, line))
         pretty_print(debug_line, option)
 
 
@@ -167,7 +117,7 @@ def cmd_print(line: str, option: tuner.Option) -> None:
     :param Option option: option object
     :return:
     """
-    cmd_line: str = u" ".join((LineEdge.cmd(option.no_color), line))
+    cmd_line: str = u" ".join((option.cmd_out, line))
     pretty_print(cmd_line, option)
 
 
