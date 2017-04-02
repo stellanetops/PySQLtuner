@@ -1264,9 +1264,9 @@ def security_recommendations(
         mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_4.sql")
 
     with open(mysql_password_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-        mysql_password_query: sqla.Text = sqla.text(mpqf.read())
+        mysql_password_query: str = mpqf.read().replace(u":password_column", password_column)
 
-    result = sess.execute(mysql_password_query, password_column=password_column)
+    result = sess.execute(mysql_password_query)
     Password = clct.namedtuple(u"Password", result.keys())
     password_users: typ.Sequence[str] = [
         Password(*password).GRANTEE
@@ -1300,10 +1300,10 @@ def security_recommendations(
             return recommendations, adjusted_vars
 
     # Looking for User with user/ uppercase /capitalise user as password
-    mysql_capitalize_query_file = osp.join(info.query_dir, f"capitalize-query.sql")
+    mysql_capitalize_query_file: str = osp.join(info.query_dir, f"capitalize-query.sql")
     with open(mysql_capitalize_query_file, mode=u"r", encoding=u"utf-8") as mcqf:
-        mysql_capitalize_query: sqla.Text = sqla.text(mcqf.read())
-    result = sess.execute(mysql_capitalize_query, password_column=password_column)
+        mysql_capitalize_query: str = mcqf.read().replace(u":password_column", password_column)
+    result = sess.execute(mysql_capitalize_query)
     Capitalize = clct.namedtuple(u"Capitalize", result.keys())
     capitalize_users: typ.Sequence[Capitalize] = [
         Capitalize(*user).GRANTEE
@@ -1317,7 +1317,7 @@ def security_recommendations(
             u"Set up a Password for user with the following SQL statement: "
             u"( SET PASSWORD FOR 'user'@'SpecificDNSorIP' = PASSWORD('secure_password'); )"
         ))
-    mysql_host_query_file = osp.join(info.query_dir, u"host-query.sql")
+    mysql_host_query_file: str = osp.join(info.query_dir, u"host-query.sql")
     with open(mysql_host_query_file, mode=u"r", encoding=u"utf-8") as mhqf:
         mysql_host_query: str = mhqf.read()
     result = sess.execute(mysql_host_query)
@@ -1348,21 +1348,10 @@ def security_recommendations(
             interpass_amount += 1
 
             # Looking for User with user/ uppercase /capitalise user as password
-            mysql_capital_password_query: str = u"\n".join((
-                u"SELECT",
-                u"  CONCAT(`usr`.`USER`, '@', `usr`.`HOST`) AS `GRANTEE`",
-                u"FROM",
-                u"  `mysql`.`user` AS `usr`",
-                u"WHERE",
-                f"    {password_column}` = PASSWORD({password})",
-                u"  OR",
-                f"    `{password_column}` = PASSWORD(UPPER({password}))",
-                u"  OR",
-                f"    `{password_column}` = PASSWORD(",
-                f"      CONCAT(UPPER(LEFT({password}, 1)), SUBSTRING({password}, 2, LENGTH({password})))",
-                u"    );"
-            ))
-            result = sess.execute(mysql_capital_password_query)
+            mysql_capital_password_query_file: str = osp.join(info.query_dir, u"capital-password-query.sql")
+            with open(mysql_capital_password_query_file, mode=u"r", encoding=u"utf-8") as mcpqf:
+                mysql_capital_password_query: sqla.Text = sqla.text(mcpqf.replace(u":password_column", password_column))
+            result = sess.execute(mysql_capital_password_query, password=password)
             CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
             capital_password_users: typ.Sequence[str] = [
                 CapitalPassword(*user).GRANTEE
