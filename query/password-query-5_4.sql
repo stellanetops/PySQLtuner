@@ -3,6 +3,6 @@ SELECT
 FROM
   `mysql`.`user` AS `usr`
 WHERE
-  `usr`.`PASSWORD` = ''
+  `usr`.`:password_column` = ''
   OR
-    `usr`.`PASSWORD` IS NULL;
+    `usr`.`:password_column` IS NULL;

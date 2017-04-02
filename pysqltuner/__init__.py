@@ -1226,10 +1226,9 @@ def security_recommendations(
         fp.info_print(u"Skipped due to --skip-password option", option)
         return recommendations, adjusted_vars
 
-    password_column: str = u"password"
-    query_file_version: str = u"5_4"
+    password_column: str = u"PASSWORD"
     if (info.ver_major, info.ver_minor) >= (5, 7):
-        password_column = u"authentication_string"
+        password_column = u"AUTHENTICATION_STRING"
 
     # Looking for Anonymous users
     mysql_user_query_file: str = osp.join(info.query_dir, u"user-query.sql")
@@ -1260,18 +1259,14 @@ def security_recommendations(
 
     # Looking for Empty Password
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
-        query_file_version = u"5_5"
-        if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
-            mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_7.sql")
-        else:
-            mysql_password_query_file: str = osp.join(info.query_dir, f"password-query-{query_file_version}.sql")
+        mysql_password_query_file: str = osp.join(info.query_dir, f"password-query-5_5.sql")
     else:
         mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_4.sql")
 
     with open(mysql_password_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-        mysql_password_query: str = mpqf.read()
+        mysql_password_query: sqla.Text = sqla.text(mpqf.read())
 
-    result = sess.execute(mysql_password_query)
+    result = sess.execute(mysql_password_query, password_column=password_column)
     Password = clct.namedtuple(u"Password", result.keys())
     password_users: typ.Sequence[str] = [
         Password(*password).GRANTEE
@@ -1305,10 +1300,10 @@ def security_recommendations(
             return recommendations, adjusted_vars
 
     # Looking for User with user/ uppercase /capitalise user as password
-    mysql_capitalize_query_file = osp.join(info.query_dir, f"capitalize-query-{query_file_version}.sql")
+    mysql_capitalize_query_file = osp.join(info.query_dir, f"capitalize-query.sql")
     with open(mysql_capitalize_query_file, mode=u"r", encoding=u"utf-8") as mcqf:
-        mysql_capitalize_query: str = mcqf.read()
-    result = sess.execute(mysql_capitalize_query)
+        mysql_capitalize_query: sqla.Text = sqla.text(mcqf.read())
+    result = sess.execute(mysql_capitalize_query, password_column=password_column)
     Capitalize = clct.namedtuple(u"Capitalize", result.keys())
     capitalize_users: typ.Sequence[Capitalize] = [
         Capitalize(*user).GRANTEE
