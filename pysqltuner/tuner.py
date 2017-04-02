@@ -2,8 +2,10 @@
 Module to contain the tuner classes
 """
 
+import collections as clct
 import functools as funct
 import os.path as osp
+import sqlalchemy.orm as orm
 import typing as typ
 
 
@@ -67,10 +69,14 @@ class Option:
 
 
 class Info:
-    def __init__(self):
-        self.ver_major: int = 0
-        self.ver_minor: int = 0
-        self.ver_micro: int = 0
+    def __init__(self, sess: orm.session.Session):
+        """Initializes info object
+
+        :param orm.session.Session sess: session object
+        """
+        self._ver_major: int = 0
+        self._ver_minor: int = 0
+        self._ver_micro: int = 0
         self.data_dir: str = None
         self.script_dir: str = osp.dirname(__file__)
         self.query_dir: str = osp.join(osp.dirname(__file__), u"../query")
@@ -109,6 +115,46 @@ class Info:
         self.have_connect: bool = False
         self.wsrep_provider_options: str = None
         self.log_error_file: str = None
+
+        version_query_file: str = osp.join(self.query_dir, u"version-query.sql")
+
+        with open(version_query_file, mode=u"r", encoding=u"utf-8") as vqf:
+            version_query: str = vqf.read()
+
+        result = sess.execute(version_query)
+        Version = clct.namedtuple(u"Version", result.keys())
+        versions: typ.Sequence[str] = [
+            Version(*version).VERSION.split("-")[0].split(".")
+            for version in result.fetchall()
+            ]
+        self._ver_major, self._ver_minor, self._ver_micro = [
+            int(version)
+            for version in versions[0]
+        ]
+
+    @property
+    def ver_major(self) -> int:
+        """Returns major version
+
+        :return int: major version
+        """
+        return self._ver_major
+
+    @property
+    def ver_minor(self) -> int:
+        """Returns minor version
+
+        :return int: minor version
+        """
+        return self._ver_minor
+
+    @property
+    def ver_micro(self) -> int:
+        """Returns micro version
+
+        :return int: micro version
+        """
+        return self._ver_micro
 
 
 class Stat:

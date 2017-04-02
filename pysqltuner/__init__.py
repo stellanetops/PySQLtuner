@@ -1205,33 +1205,6 @@ def system_recommendations(
     return recommendations, adjusted_vars
 
 
-def mysql_version(sess: orm.session.Session, info: tuner.Info) -> typ.Tuple[int, int, int]:
-    """Finds version of mysql being used
-
-    :param orm.session.Session sess: session object
-    :param tuner.Info info: info object
-
-    :return typ.Tuple[int, int, int]: major, minor, and micro version numbers
-    """
-    version_query_file: str = osp.join(info.script_dir, u"version-query.sql")
-
-    with open(version_query_file, mode=u"r", encoding=u"utf-8") as vqf:
-        version_query: str = vqf.read()
-
-    result = sess.execute(version_query)
-    Version = clct.namedtuple(u"Version", result.keys())
-    versions: typ.Sequence[str] = [
-        Version(*version).VERSION.split("-")[0].split(".")
-        for version in result.fetchall()
-    ]
-    ver_major, ver_minor, ver_micro = [
-        int(version)
-        for version in versions[0]
-    ]
-
-    return ver_major, ver_minor, ver_micro
-
-
 def security_recommendations(
     option: tuner.Option,
     info: tuner.Info,
@@ -1274,13 +1247,16 @@ def security_recommendations(
     if users:
         for user in sorted(users):
             fp.bad_print(f"User '{user}' is an anonymous account.", option)
-        # TODO recommendation
+        recommendations.append(
+            f"Remove Anonymous User accounts - there are {len(users)} anonymous accounts."
+        )
     else:
         fp.good_print(u"There are no anonymous accounts for any database users", option)
-        if (info.ver_major, info.ver_minor, info.ver_micro) <= (5, 1):
-            fp.bad_print(u"No more password checks for MySQL <= 5.1", option)
-            fp.bad_print(u"MySQL version <= 5.1 are deprecated and are at end of support", option)
-            return recommendations, adjusted_vars
+
+    if (info.ver_major, info.ver_minor, info.ver_micro) <= (5, 1):
+        fp.bad_print(u"No more password checks for MySQL <= 5.1", option)
+        fp.bad_print(u"MySQL version <= 5.1 are deprecated and are at end of support", option)
+        return recommendations, adjusted_vars
 
     # Looking for Empty Password
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
@@ -1305,7 +1281,10 @@ def security_recommendations(
     if password_users:
         for user in password_users:
             fp.bad_print(f"User '{user}' has no password set.", option)
-            # TODO recommendations
+        recommendations.append((
+            u"Set up a Password for user with the following SQL statement: "
+            u"( SET PASSWORD FOR 'user'@'SpecificDNSorIp' = PASSWORD('secure_password'); )"
+        ))
     else:
         fp.good_print(u"All database users have passwords assigned", option)
 
@@ -1339,8 +1318,10 @@ def security_recommendations(
     if capitalize_users:
         for user in capitalize_users:
             fp.bad_print(f"User '{user}' has user name as password", option)
-        # TODO recommendations
-
+        recommendations.append((
+            u"Set up a Password for user with the following SQL statement: "
+            u"( SET PASSWORD FOR 'user'@'SpecificDNSorIP' = PASSWORD('secure_password'); )"
+        ))
     mysql_host_query_file = osp.join(info.query_dir, u"host-query.sql")
     with open(mysql_host_query_file, mode=u"r", encoding=u"utf-8") as mhqf:
         mysql_host_query: str = mhqf.read()
@@ -1354,7 +1335,7 @@ def security_recommendations(
     if host_users:
         for user in host_users:
             fp.bad_print(f"User '{user}' does not have specific host restrictions.", option)
-        # TODO recommendations
+        recommendations.append(u"Restrict Host for 'user'@'%' to 'user'@SpecificDNSorIP'")
 
     if os.path.isfile(option.basic_passwords_file):
         fp.bad_print(u"There is no basic password file list!", option)
@@ -1401,12 +1382,14 @@ def security_recommendations(
                         f"{password} in a lower, upper, or capitalized derivative version."
                     ), option)
                     bad_amount += 1
-                    # TODO recommendations
             if interpass_amount % 1000 == 0:
                 fp.debug_print(f"{interpass_amount} / {len(passwords)}", option)
     if bad_amount > 0:
-        # TODO recommendation
-        pass
+        recommendations.append(
+            f"{bad_amount} user(s) used a basic or weak password."
+        )
+
+    return recommendations, adjusted_vars
 
 
 def replication_status(option: tuner.Option) -> None:
@@ -1415,18 +1398,19 @@ def replication_status(option: tuner.Option) -> None:
     #fp.info_print(f"Galera Synchronous replication {option.}", option)
 
 
-def validate_mysql_version(option: tuner.Option) -> None:
+def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
     """Check MySQL Version
 
     :param tuner.Option option: option object
+    :param tuner.Info info: info object
+
     :return:
     """
-    ver_major, ver_minor, ver_micro = mysql_version()
-    full_version: str = f"{ver_major}.{ver_minor}.{ver_micro}"
+    full_version: str = f"{info.ver_major}.{info.ver_minor}.{info.ver_micro}"
 
-    if not (ver_major, ver_major, ver_micro) >= (5, 1):
+    if (info.ver_major, info.ver_major, info.ver_micro) < (5, 1):
         fp.bad_print(f"Your MySQL version {full_version} is EOL software! Upgrade soon!", option)
-    elif (6 <= ver_major <= 9) or ver_major >= 12:
+    elif (6 <= info.ver_major <= 9) or info.ver_major >= 12:
         fp.bad_print(f"Currently running unsupported MySQL version {full_version}", option)
     else:
         fp.good_print(f"Currently running supported MySQL version {full_version}", option)
@@ -1463,18 +1447,29 @@ def check_architecture(option: tuner.Option, physical_memory: int) -> None:
         # TODO set architecture
 
 
-def check_storage_engines(option: tuner.Option) -> None:
+def check_storage_engines(
+    option: tuner.Option,
+    info: tuner.Info,
+    sess: orm.session.Session
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Storage Engine information
+
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param orm.session.Session sess:
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
     fp.subheader_print(u"Storage Engine Statistics", option)
     if option.skip_size:
         fp.info_print(u"Skipped due to --skip-size option", option)
-        return
-
-    ver_major, ver_minor, ver_micro = mysql_version()
-    connect_params: typ.Dict[str, str] = util.connection_params()
-    engine = sqla.create_engine(sqla.engine.url.URL(**connect_params))
+        return recommendations, adjusted_vars
 
     engines: str = ""
-    if (ver_major, ver_minor, ver_micro) >= (5, 5):
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
         engine_query: str = "\n".join((
             u"SELECT",
             u"  `eng`.`ENGINE`,",
@@ -1484,16 +1479,15 @@ def check_storage_engines(option: tuner.Option) -> None:
             u"ORDER BY",
             u"  `eng`.`ENGINE` ASC;"
         ))
-        with util.session_scope(engine) as sess:
-            result = sess.execute(engine_query)
-            Engine = clct.namedtuple(u"Engine", result.keys())
-            engine_supports: typ.Sequence[str, str] = [
-                (engine.ENGINE, engine.SUPPORT)
-                for engine in [
-                    Engine(*engine)
-                    for engine in result.fetchall()
-                ]
+        result = sess.execute(engine_query)
+        Engine = clct.namedtuple(u"Engine", result.keys())
+        engine_supports: typ.Sequence[str, str] = [
+            (engine.ENGINE, engine.SUPPORT)
+            for engine in [
+                Engine(*engine)
+                for engine in result.fetchall()
             ]
+        ]
         for engine, support in engine_supports:
             if engine.strip() and support.strip():
                 # TODO set result variable
@@ -1502,7 +1496,7 @@ def check_storage_engines(option: tuner.Option) -> None:
                 else:
                     engine_part: str = fp.red_wrap(f"+{engine} ", option)
                 engines += engine_part
-    elif (ver_major, ver_minor, ver_micro) >= (5, 1, 5):
+    elif (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         engine_query: str = "\n".join((
             u"SELECT",
             u"  `eng`.`ENGINE`,",
@@ -1519,16 +1513,15 @@ def check_storage_engines(option: tuner.Option) -> None:
             u"ORDER BY",
             u"  `eng`.`ENGINE` ASC;"
         ))
-        with util.session_scope(engine) as sess:
-            result = sess.execute(engine_query)
-            Engine = clct.namedtuple(u"Engine", result.keys())
-            engine_supports: typ.Sequence[str, str] = [
-                (engine.ENGINE, engine.SUPPORT)
-                for engine in [
-                    Engine(*engine)
-                    for engine in result.fetchall()
-                ]
+        result = sess.execute(engine_query)
+        Engine = clct.namedtuple(u"Engine", result.keys())
+        engine_supports: typ.Sequence[str, str] = [
+            (engine.ENGINE, engine.SUPPORT)
+            for engine in [
+                Engine(*engine)
+                for engine in result.fetchall()
             ]
+        ]
         for engine, support in engine_supports:
             if engine.strip() and support.strip():
                 # TODO set result variable
@@ -1541,19 +1534,18 @@ def check_storage_engines(option: tuner.Option) -> None:
         # TODO need variable object to pick which parts to print
         pass
 
-    database_query: str = "SHOW DATABASES;"
-    with util.session_scope(engine) as sess:
-        result = sess.execute(database_query)
-        Database = clct.namedtuple(u"Database", result.keys())
-        databases: typ.Sequence[str] = [
-            Database(*database).Database
-            for database in result.fetchall()
-        ]
+    database_query: str = u"SHOW DATABASES;"
+    result = sess.execute(database_query)
+    Database = clct.namedtuple(u"Database", result.keys())
+    databases: typ.Sequence[str] = [
+        Database(*database).Database
+        for database in result.fetchall()
+    ]
     # TODO set result variable
 
     fp.info_print(f"Status {engines}", option)
 
-    if (ver_major, ver_minor, ver_micro) >= (5, 1, 5):
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         # MySQL 5 servers can have table sizes calculated quickly from information schema
         engine_query: str = "\n".join((
             u"SELECT",
@@ -1577,16 +1569,15 @@ def check_storage_engines(option: tuner.Option) -> None:
             u"ORDER BY",
             u"  `eng`.`ENGINE` ASC;"
         ))
-        with util.session_scope(engine) as sess:
-            result = sess.execute(engine_query)
-            Engine = clct.namedtuple(u"Engine", result.keys())
-            engine_sizes: typ.Sequence[str, int, int, int, int] = [
-                (engine.ENGINE, engine.SIZE, engine.COUNT, engine.DATA_SIZE, engine.INDEX_SIZE)
-                for engine in [
-                    Engine(*engine)
-                    for engine in result.fetchall()
-                ]
+        result = sess.execute(engine_query)
+        Engine = clct.namedtuple(u"Engine", result.keys())
+        engine_sizes: typ.Sequence[str, int, int, int, int] = [
+            (engine.ENGINE, engine.SIZE, engine.COUNT, engine.DATA_SIZE, engine.INDEX_SIZE)
+            for engine in [
+                Engine(*engine)
+                for engine in result.fetchall()
             ]
+        ]
 
         for engine, size, count, data_size, index_size in engine_sizes:
             fp.debug_print(f"Engine Found: {engine}", option)
@@ -1609,7 +1600,7 @@ def check_storage_engines(option: tuner.Option) -> None:
             indexes: typ.Tuple[int, int, int] = (1, 6, 9)
 
             if __name__ == '__main__':
-                if (ver_major, ver_minor, ver_micro) < (4, 1):
+                if (info.ver_major, info.ver_minor, info.ver_micro) < (4, 1):
                     # MySQL 3.23/4.0 keeps Data_Length in the 5th (0-based) column
                     indexes = (1, 5, 8)
 
