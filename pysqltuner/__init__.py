@@ -10,6 +10,7 @@ https://github.com/major/MySQLtuner-perl
 
 import collections as clct
 import getpass
+import json
 import os
 import os.path as osp
 import platform
@@ -2298,5 +2299,41 @@ def make_recommendations(
     if not recommendations and not adjusted_vars:
         fp.pretty_print(u"No additional performance recommendations are available.", option)
 
-# TODO template model function ?
-# TODO dump template result ?
+
+def template_model(option: tuner.Option, info: tuner.Info) -> str:
+    """Generates template model
+
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :return str:
+    """
+    if option.template:
+        template_file: str = option.template
+    else:
+        template_file: str = osp.join(info.script_dir, u"../template/template-model.htm")
+
+    with open(template_file, mode=u"r", encoding=u"utf-8") as tf:
+        _template_model: str = tf.read()
+
+    return _template_model
+
+
+def dump_result(result: typ.Any, option: tuner.Option, info: tuner.Info) -> None:
+    if option.debug:
+        fp.debug_print(f"{result}", option)
+
+    fp.debug_print(f"HTML REPORT: {option.report_file}", option)
+
+    if option.report_file:
+        # TODO fill template with data somehow
+        data: str = result
+
+        _template_model: str = template_model(option, info)
+        with open(option.report_file, mode=u"w", encoding="utf-8") as rf:
+            rf.write(template_model().replace(u":data", data))
+
+    # TODO do something with json?
+    # if option.json:
+    #    if option.pretty_json:
+    #        json.dumps()
+

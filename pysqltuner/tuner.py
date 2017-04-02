@@ -4,6 +4,7 @@ Module to contain the tuner classes
 
 import collections as clct
 import functools as funct
+import os
 import os.path as osp
 import sqlalchemy.orm as orm
 import typing as typ
@@ -29,7 +30,7 @@ class Option:
         self.update_version: bool = False
         self.buffers: bool = False
         self.password_file: str = None
-        self.banned_ports: typ.Sequence[int] = None
+        self._banned_ports: typ.Sequence[int] = None
         self.max_port_allowed: int = 0
         self.output_file: str = None
         self.db_stat: bool = False
@@ -48,7 +49,7 @@ class Option:
         self.mysqlcmd: str = None
         self.do_remote: bool = False
         self.remote_connect: str = None
-        self.cve_file: str = None
+        self._cve_file: str = None
         self.basic_passwords_file: str = None
 
     @property
@@ -56,7 +57,7 @@ class Option:
         return self._verbose
 
     @verbose.setter
-    def verbose(self, value: bool):
+    def verbose(self, value: bool) -> None:
         self._verbose = value
         if self._verbose:
             self.check_version = True
@@ -65,7 +66,27 @@ class Option:
             self.sys_stat = True
             self.buffers = True
             self.pf_stat = True
-            self.cve_file = u"vulnerabilities.csv"
+            self._cve_file = u"vulnerabilities.csv"
+
+    @funct.lru_cache()
+    @property
+    def cve_file(self) -> str:
+        if not self._cve_file or not osp.isfile(self._cve_file):
+            self._cve_file = u"/usr/share/pysqltuner/vulnerabilities.csv"
+        if osp.isfile(u"./vulnerabilities.csv"):
+            self._cve_file = u"./vulnerabilities.csv"
+
+        return self._cve_file
+
+    @funct.lru_cache()
+    @property
+    def banned_ports(self) -> typ.Sequence[str]:
+        if self._banned_ports:
+            return tuple(
+                banned_port
+                for banned_port in self._banned_ports.split(u",")
+            )
+        return []
 
 
 class Info:
