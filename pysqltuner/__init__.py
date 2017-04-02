@@ -1453,57 +1453,22 @@ def check_storage_engines(
         return recommendations, adjusted_vars
 
     engines: str = ""
-    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
-        engine_query: str = "\n".join((
-            u"SELECT",
-            u"  `eng`.`ENGINE`,",
-            u"  `eng`.`SUPPORT`",
-            u"FROM",
-            u"`information_schema`.`ENGINES` AS `eng`",
-            u"ORDER BY",
-            u"  `eng`.`ENGINE` ASC;"
-        ))
-        result = sess.execute(engine_query)
-        Engine = clct.namedtuple(u"Engine", result.keys())
+    if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
+        engine_version: str = u"5_1"
+        if (info.ver_major, info.ver_minor) == (5, 5):
+            engine_version = u"5_5"
+
+        engine_support_query_file: str = osp.join(info.query_dir, f"engine-support-query={engine_version}.sql")
+
+        with open(engine_support_query_file, mode=u"r", encoding=u"utf-8") as esqf:
+            engine_support_query: str = esqf.read()
+        result = sess.execute(engine_support_query)
+        EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
         engine_supports: typ.Sequence[str, str] = [
-            (engine.ENGINE, engine.SUPPORT)
-            for engine in [
-                Engine(*engine)
-                for engine in result.fetchall()
-            ]
-        ]
-        for engine, support in engine_supports:
-            if engine.strip() and support.strip():
-                # TODO set result variable
-                if support in (u"YES", u"ENABLES"):
-                    engine_part: str = fp.green_wrap(f"+{engine} ", option)
-                else:
-                    engine_part: str = fp.red_wrap(f"+{engine} ", option)
-                engines += engine_part
-    elif (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
-        engine_query: str = "\n".join((
-            u"SELECT",
-            u"  `eng`.`ENGINE`,",
-            u"  `eng`.`SUPPORT`",
-            u"FROM",
-            u"`information_schema`.`ENGINES` AS `eng`",
-            u"WHERE",
-            u"  `eng`.`ENGINE` NOT IN (",
-            u"      'performance_schema',",
-            u"      'MyISAM',",
-            u"      'MERGE',",
-            u"      'MEMORY'",
-            u"  )",
-            u"ORDER BY",
-            u"  `eng`.`ENGINE` ASC;"
-        ))
-        result = sess.execute(engine_query)
-        Engine = clct.namedtuple(u"Engine", result.keys())
-        engine_supports: typ.Sequence[str, str] = [
-            (engine.ENGINE, engine.SUPPORT)
-            for engine in [
-                Engine(*engine)
-                for engine in result.fetchall()
+            (engine_support.ENGINE, engine_support.SUPPORT)
+            for engine_support in [
+                EngineSupport(*engine_support)
+                for engine_support in result.fetchall()
             ]
         ]
         for engine, support in engine_supports:
@@ -1516,7 +1481,20 @@ def check_storage_engines(
                 engines += engine_part
     else:
         # TODO need variable object to pick which parts to print
-        pass
+        engines += fp.green_wrap(u"+Archive", option) if info.have_archive else fp.red_wrap(u"-Archive", option)
+        engines += fp.green_wrap(u"+BDB", option) if info.have_bdb else fp.red_wrap(u"-BDB", option)
+        engines += (
+            fp.green_wrap(u"+Federated", option)
+            if info.have_federated_engine
+            else fp.red_wrap(u"-Federated", option)
+        )
+        engines += fp.green_wrap(u"+InnoDB", option) if info.have_innodb else fp.red_wrap(u"-InnoDB", option)
+        engines += fp.green_wrap(u"+MyISAM", option) if info.have_myisam else fp.red_wrap(u"-MyISAM", option)
+        engines += (
+            fp.green_wrap(u"+NDBCluster", option)
+            if info.have_ndb_cluster
+            else fp.red_wrap(u"-NDBCLuster", option)
+        )
 
     database_query: str = u"SHOW DATABASES;"
     result = sess.execute(database_query)
@@ -1531,28 +1509,9 @@ def check_storage_engines(
 
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         # MySQL 5 servers can have table sizes calculated quickly from information schema
-        engine_query: str = "\n".join((
-            u"SELECT",
-            u"  `tbl`.`ENGINE` AS `ENGINE`,",
-            u"  SUM(`tbl`.`DATA_LENGTH` + `tbl`.`INDEX_LENGTH`) AS `SIZE`,",
-            u"  COUNT(`tbl`.`ENGINE`) AS `COUNT`,",
-            u"  SUM(`tbl`.`DATA_LENGTH`) AS `DATA_SIZE`,",
-            u"  SUM(`tbl`.`INDEX_LENGTH`) AS `INDEX_SIZE`"
-            u"FROM",
-            u"`information_schema`.`TABLES` AS `tbl`",
-            u"WHERE",
-            u"  `tbl`.`TABLE_SCHEMA` NOT IN (",
-            u"      'information_schema',",
-            u"      'mysql',",
-            u"      'performance_schema'",
-            u"  )",
-            u"  AND",
-            u"      `tbl`.`ENGINE` IS NOT NULL",
-            u"GROUP BY",
-            u"  `tbl`.`ENGINE`"
-            u"ORDER BY",
-            u"  `eng`.`ENGINE` ASC;"
-        ))
+        engine_query_file: str = osp.join(info.query_dir, u"engine-query.sql")
+        with open(engine_query_file, mode=u"r", encoding=u"utf-8") as eqf:
+            engine_query: str = eqf.read()
         result = sess.execute(engine_query)
         Engine = clct.namedtuple(u"Engine", result.keys())
         engine_sizes: typ.Sequence[str, int, int, int, int] = [
@@ -1596,8 +1555,16 @@ def check_storage_engines(
         # TODO defragment tables
         # TODO etc
 
+    return recommendations, adjusted_vars
 
-def calculations(sess: orm.session.Session, calc: tuner.Calc, option: tuner.Option, stat: tuner.Stat, info: tuner.Info) -> None:
+
+def calculations(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat,
+    calc: tuner.Calc
+) -> None:
     if stat.questions < 1:
         fp.bad_print(u"Your server has not answered any queries - cannot continue...", option)
         raise NotImplementedError
@@ -1877,19 +1844,43 @@ def calculations(sess: orm.session.Session, calc: tuner.Calc, option: tuner.Opti
 
 
 # TODO finish mysql stats function
-def mysql_stats(option: tuner.Option) -> None:
+def mysql_stats(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """
+
+    :param Option option:
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
     fp.subheader_print(u"Performance Metrics", option)
     # Show uptime, queries per second, connections, traffic stats
 
+    return recommendations, adjusted_vars
+
 
 # TODO finish MyISAM recommendations
-def mysql_myisam(option: tuner.Option) -> None:
+def mysql_myisam(
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat,
+    calc: tuner.Calc
+ ) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for MyISAM
 
-    :param tuner.Option option: options object
-    :return:
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param tuner.Stat stat:
+    :param tuenr.Calc calc:
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
-    pass
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    fp.subheader_print(u"MyISAM Metrics", option)
+
+    return recommendations, adjusted_vars
 
 
 def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
@@ -1953,7 +1944,7 @@ def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session
     :param tuner.Option option:
     :param tuner.Info info:
     :param orm.session.Session sess:
-    :return:
+    :return int:
     """
     # Performance Schema
     if not info.performance_schema:
@@ -1975,14 +1966,21 @@ def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session
 
 
 # TODO 1500 line function
-def mysql_pfs(option: tuner.Option) -> None:
-    pass
+def mysql_pfs(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat,
+    calc: tuner.Calc
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """
 
-
-def recommendation_template(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
-    """Recommendations for XXX
-
+    :param orm.session.Session sess:
     :param tuner.Option option:
+    :param tuner.Info info:
+    :param tuner.Stat stat:
+    :param tuenr.Calc calc:
+
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -1998,6 +1996,7 @@ def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, sta
     :param tuner.Info info:
     :param tuner.Calc calc:
     :param tuner.Stat stat
+
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2142,7 +2141,7 @@ def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
 
     galera_options: typ.Sequence[str] = [
         wsrep.strip()
-        for wsrep in info.wsrep_provider_options.split(";")
+        for wsrep in info.wsrep_provider_options.split(u";")
         if wsrep.strip()
     ]
 
@@ -2180,7 +2179,7 @@ def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
 
     :param tuner.Option option:
     :param tuner.Info info:
-    :return:
+    :return int:
     """
     return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
 
@@ -2194,4 +2193,110 @@ def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
+    # TODO fill galera mariadb in -- needs result
+
     return recommendations, adjusted_vars
+
+
+# TODO 300 line function mysql_innodb
+def mysql_innodb(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat,
+    calc: tuner.Calc
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for InnoDB
+
+    :param orm.session.Session sess:
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param tuner.Stat stat:
+    :param tuenr.Calc calc:
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    return recommendations, adjusted_vars
+
+
+# TODO Database metrics
+def mysql_databases(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat,
+    calc: tuner.Calc
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """Recommendations for database metrics
+
+    :param orm.session.Session sess:
+    :param tuner.Option option:
+    :param tuner.Info info:
+    :param tuner.Stat stat:
+    :param tuenr.Calc calc:
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    return recommendations, adjusted_vars
+
+
+# TODO Index metrics
+def mysql_indexes(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    """
+
+    :param orm.session.Session sess:
+    :param tuner.Option option:
+    :param tuner.Info info:
+
+    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    """
+    recommendations: typ.List[str] = []
+    adjusted_vars: typ.List[str] = []
+
+    return recommendations, adjusted_vars
+
+
+def make_recommendations(
+    recommendations: typ.Sequence[str],
+    adjusted_vars: typ.Sequence[str],
+    option: tuner.Option,
+    calc: tuner.Calc
+) -> None:
+    """Displays all recommendations
+
+    :param typ.Sequence[str] recommendations:
+    :param typ.Sequence[str] adjusted_vars:
+    :param tuner.Option option:
+    :param tuner.Calc calc:
+    :return:
+    """
+    fp.subheader_print(u"Recommendations", option)
+
+    if recommendations:
+        fp.pretty_print(u"General Recommendations:", option)
+        for recommendation in recommendations:
+            fp.pretty_print(f"\t{recommendation}", option)
+
+    if adjusted_vars:
+        fp.pretty_print(u"Variables to Adjust:", option)
+        if calc.pct_max_physical_memory > 90:
+            fp.pretty_print(u"  *** MySQL's maximum memory usage is dangerously high ***", option)
+            fp.pretty_print(u"  *** Add RAM before increasing MySQL buffer variables ***", option)
+        for adjusted_var in adjusted_vars:
+            fp.pretty_print(f"\t{adjusted_var}", option)
+
+    if not recommendations and not adjusted_vars:
+        fp.pretty_print(u"No additional performance recommendations are available.", option)
+
+# TODO template model function ?
+# TODO dump template result ?

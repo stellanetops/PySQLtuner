@@ -80,6 +80,12 @@ class Info:
         self.data_dir: str = None
         self.script_dir: str = osp.dirname(__file__)
         self.query_dir: str = osp.join(osp.dirname(__file__), u"../query")
+        self.have_archive: bool = False
+        self.have_bdb: bool = False
+        self.have_federated_engine: bool = True
+        self.have_innodb: bool = True
+        self.have_myisam: bool = True
+        self.have_ndb_cluster: bool = False
         self.max_connections: int = 0
         self.read_buffer_size: int = 0
         self.read_rnd_buffer_size: int = 0
@@ -98,8 +104,6 @@ class Info:
         self.ariadb_pagecache_buffer_size: int = 0
         self.key_cache_block_size: int = 0
         self.open_files_limit: int = 0
-        self.have_innodb: bool = True
-        self.have_myisam: bool = True
         self.innodb_log_file_size: int = 0
         self.innodb_log_files_in_group: int = 0
         self.log_bin: bool = False
