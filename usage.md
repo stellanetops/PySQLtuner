@@ -1,6 +1,6 @@
-MySQLTuner :__version__ - MySQL High Performance Tuning Script
+MySQLTuner :version - MySQL High Performance Tuning Script
 Bug reports, feature requests, and downloads at https://github.com/immanuelqrw/PySQLtuner
-Maintained by Immanuel Washington (:__email__) - Licensed under GPL
+Maintained by Immanuel Washington (:email) - Licensed under GPL
 
 Important Usage Guidelines:
   To run the script with the default options, run the script without arguments

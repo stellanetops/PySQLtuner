@@ -31,9 +31,17 @@ __email__: str = u"immanuelqrw@gmail.com"
 
 def usage() -> None:
     """Prints information about PySQLtuner's script"""
-    usage_file: str = osp.dirname(__file__, "..")
+    usage_file: str = osp.join(osp.dirname(__file__), u"..")
     with open(usage_file, mode =u"r", encoding="utf-8") as uf:
-        print(uf.read())
+        usage_msg: str = uf.read().replace(
+            u":version",
+            __version__
+        ).replace(
+            u":email",
+            __email__
+        )
+
+    print(usage_msg)
 
 
 def header_print(option: tuner.Option) -> None:
