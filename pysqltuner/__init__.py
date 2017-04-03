@@ -2160,6 +2160,32 @@ def mysql_innodb(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
+    fp.subheader_print(u"InnoDB Metrics", option)
+
+    # InnoDB
+    if not info.have_innodb:
+        fp.info_print(u"InnoDB is disabled.", option)
+        if (info.ver_major, info.ver_minor) >= (5, 5):
+            fp.bad_print(u"InnoDB Storage Engine is disabled. InnoDB is the default storage engine", option)
+
+        return recommendations, adjusted_vars
+
+    fp.info_print(u"InnoDB is enabled.", option)
+
+    if option.buffers:
+        fp.info_print(u"InnoDB Buffers", option)
+
+        if info.innodb_buffer_pool_size > 0:
+            fp.info_print(f" +-- InnoDB Buffer Pool: {util.string_to_bytes(info.innodb_buffer_pool_size)}", option)
+
+        if info.innodb_buffer_pool_instances > 0:
+            fp.info_print((
+                u" +-- InnoDB Buffer Pool Instances:"
+                f" {util.string_to_bytes(info.innodb_buffer_pool_instances)}"
+            }, option)
+
+        # TODO more checks
+
     return recommendations, adjusted_vars
 
 

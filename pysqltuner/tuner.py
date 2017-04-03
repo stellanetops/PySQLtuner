@@ -154,6 +154,8 @@ class Info:
         self.max_heap_table_size: int = 0
         self.key_buffer_size: int = 0
         self.innodb_buffer_pool_size: int = 0
+        self.innodb_buffer_pool_instances: int = 0
+        self.innodb_buffer_pool_chunk_size: int = 0
         self.innodb_additional_mem_pool_size: int = 0
         self.innodb_log_buffer_size: int = 0
         self.query_cache_size: int = 0
@@ -162,6 +164,8 @@ class Info:
         self.open_files_limit: int = 0
         self.innodb_log_file_size: int = 0
         self.innodb_log_files_in_group: int = 0
+        self.innodb_buffer_pool_pages_free: int = 0
+        self.innodb_buffer_pool_pages_total: int = 0
         self.log_bin: bool = False
         self.have_threadpool: bool = False
         self.thread_pool_size: int = 0
