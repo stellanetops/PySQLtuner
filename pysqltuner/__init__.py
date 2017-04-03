@@ -699,11 +699,14 @@ def mysql_setup(option: tuner.Option) -> bool:
 
 
 # TODO finish all functions below this comment
-def tuning_info():
-    pass
+def tuning_info(option: tuner.Option, sess: orm.session.Session) -> None:
+    result = sess.execute(r"\w\s")
+    # TODO set result values
+    for line in result.fetchall():
+        pass
 
 
-def mysql_status_vars(option: tuner.Option, sess: orm.session.Session) -> None:
+def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> None:
     """Gathers all status variables
 
     :param tuner.Option option: options object
@@ -712,12 +715,42 @@ def mysql_status_vars(option: tuner.Option, sess: orm.session.Session) -> None:
     """
     # We need to initiate at least one query so that our data is usable
     try:
-        sess.execute(u"SELECT VERSION()")
+        result = sess.execute(u"SELECT VERSION() AS `VERSION`;")
     except Exception:
         fp.bad_print(u"Not enough privileges for running PySQLTuner", option)
         raise
 
     # TODO set variables
+    Version = clct.namedtuple(u"Version", result.keys())
+    version: str = [
+        Version(*version).VERSION.split("-")[0]
+        for version in result.fetchall()
+    ][0]
+
+    fp.debug_print(f"VERSION: {version}", option)
+    # TODO set results value
+    # TODO assign values to new lists
+
+    if info.wsrep_provider_options:
+        info.have_galera = True
+        fp.debug_print(f"Galera options: {info.wsrep_provider_options}", option)
+
+    # Workaround for MySQL bug #59393 wrt. ignore-builtin-innodb
+    if info.ignore_builtin_innodb:
+        info.have_innodb = False
+
+    # Support GTID MODE FOR MariaDB
+    # Issue MariaDB GTID mode #272
+    if info.gtid_strict_mode:
+        info.gtid_mode = info.gtid_strict_mode
+
+    if info.thread_pool_size > 0:
+        info.have_threadpool = True
+
+    # have_* for engines is deprecated and will be removed in MySQL 5.6;
+    # check SHOW ENGINES and set corresponding old style variables.
+    # Also works around MySQL bug #59393 wrt. skip-innodb
+    # TODO engine stuff
 
 
 def opened_ports() -> typ.Sequence[str]:

@@ -167,6 +167,7 @@ class Info:
         self.thread_pool_size: int = 0
         self.version: str = None
         self.performance_schema: bool = True
+        self.have_galera: bool = False
         self.have_ariadb: bool = False
         self.have_tokudb: bool = False
         self.have_xtradb: bool = False
@@ -175,6 +176,9 @@ class Info:
         self.have_connect: bool = False
         self.wsrep_provider_options: str = None
         self.log_error_file: str = None
+        self.ignore_builtin_innodb: bool = False
+        self.gtid_mode = None
+        self.gtid_strict_mode = None
 
         version_query_file: str = osp.join(self.query_dir, u"version-query.sql")
 
@@ -186,7 +190,7 @@ class Info:
         versions: typ.Sequence[str] = [
             Version(*version).VERSION.split("-")[0].split(".")
             for version in result.fetchall()
-            ]
+        ]
         self._ver_major, self._ver_minor, self._ver_micro = [
             int(version)
             for version in versions[0]
