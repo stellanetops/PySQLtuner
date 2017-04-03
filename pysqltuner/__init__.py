@@ -31,66 +31,9 @@ __email__: str = u"immanuelqrw@gmail.com"
 
 def usage() -> None:
     """Prints information about PySQLtuner's script"""
-    usage_msg: str = u"\n".join((
-        f"   MySQLTuner {__version__} - MySQL High Performance Tuning Script",
-        u"   Bug reports, feature requests, and downloads at https://github.com/immanuelqrw/PySQLtuner",
-        f"   Maintained by Immanuel Washington ({__email__}) - Licensed under GPL",
-        u"",
-        u"   Important Usage Guidelines:",
-        u"      To run the script with the default options, run the script without arguments",
-        u"      Allow MySQL server to run for at least 24-48 hours before trusting suggestions",
-        u"      Some routines may require root level privileges (script will provide warnings)",
-        u"      You must provide the remote server's total memory when connecting to other servers",
-        u"",
-        u"   Connection and Authentication",
-        u"      --host <hostname>    Connect to a remote host to perform tests (default: localhost)",
-        u"      --socket <socket>    Use a different socket for a local connection",
-        u"      --port <port>Port to use for connection (default: 3306)",
-        u"      --user <username>    Username to use for authentication",
-        u"      --user-env <envvar>   Name of env variable which contains username to use for authentication",
-        u"      --pass <password>    Password to use for authentication",
-        u"      --pass-env <envvar>   Name of env variable which contains password to use for authentication",
-        u"      --defaults-file <path>  Path to a custom .my.cnf",
-        u"      --mysqladmin <path>  Path to a custom mysqladmin executable",
-        u"      --mysqlcmd <path>    Path to a custom mysql executable",
-        u"",
-        u"      --no-ask      Don't ask password if needed",
-        u"",
-        u"   Performance and Reporting Options",
-        u"      --skip-size   Don't enumerate tables and their types/sizes (default: on)",
-        u"   (Recommended for servers with many tables)",
-        u"      --skip-password       Don't perform checks on user passwords(default: off)",
-        u"      --check-version       Check for updates to MySQLTuner",
-        u"      --update-version      Check for updates to MySQLTuner and update when newer version is available",
-        u"      --force-mem <size>    Amount of RAM installed in megabytes",
-        u"      --force-swap <size>   Amount of swap memory configured in megabytes",
-        u"      --password-file <path>Path to a password file list(one password by line)",
-        u"   Output Options:",
-        u"      --silent       Don't output anything on screen",
-        u"      --no-good      Remove OK responses",
-        u"      --no-bad       Remove negative/suggestion responses",
-        u"      --no-info      Remove informational responses",
-        u"      --debug        Print debug information",
-        u"      --db-stat      Print database information",
-        u"      --idx-stat     Print index information",
-        u"      --sys-stat     Print system information",
-        u"      --pf-stat      Print Performance schema information",
-        u"      --banned-ports Ports banned separated by comma(,)",
-        u"      --max-port-allowed     Number of ports opened allowed on this hosts",
-        u"      --cve-file    CVE File for vulnerability checks",
-        u"      --nocolor    Don't print output in color",
-        u"      --json       Print result as JSON string",
-        u"      --pretty-json Print result as human readable JSON",
-        u"      --buffers    Print global and per-thread buffer values",
-        u"      --output-file <path>  Path to a output txt file",
-        u"",
-        u"      --report-file <path>  Path to a report txt file",
-        u"",
-        u"      --template   <path>  Path to a template file",
-        u"",
-        u"      --verbose    Prints out all options (default: no verbose) u"
-    ))
-    print(usage_msg)
+    usage_file: str = osp.dirname(__file__, "..")
+    with open(usage_file, mode =u"r", encoding="utf-8") as uf:
+        print(uf.read())
 
 
 def header_print(option: tuner.Option) -> None:
@@ -710,6 +653,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     """Gathers all status variables
 
     :param tuner.Option option: options object
+    :param tuner.Info info: info object
     :param orm.session.Session sess: session
     :return:
     """
@@ -797,59 +741,6 @@ def is_open_port(port: str) -> bool:
         re.search(port_pattern, open_port)
         for open_port in opened_ports()
     )
-
-
-def os_release() -> str:
-    """Finds OS release
-
-    :return str: returns OS release
-    """
-    release_filters: typ.Sequence[typ.Tuple[str, str]] = (
-        (u".*=\"", u""),
-        (u"\"$", u"")
-    )
-
-    lsb_release_file: str = u"/etc/lsb-release"
-    if os.path.isfile(lsb_release_file):
-        with open(lsb_release_file, mode=u"r", encoding=u"utf-8") as lrf:
-            info_release: str = lrf.read()
-        os_release_: str = info_release[3]
-
-        for release_filter, release_replace in release_filters:
-            os_release_: str = re.sub(release_filter, release_replace, os_release_)
-
-        return os_release_
-
-    sys_release_file: str = u"/etc.system-release"
-    if os.path.isfile(sys_release_file):
-        with open(sys_release_file, mode=u"r", encoding=u"utf-8") as srf:
-            info_release: str = srf.read()
-        os_release_: str = info_release[0]
-
-        return os_release_
-
-    os_release_file: str = u"/etc/os-release"
-    if os.path.isfile(os_release_file):
-        with open(os_release_file, mode=u"r", encoding=u"utf-8") as orf:
-            info_release: str = orf.read()
-        os_release_: str = info_release[0]
-
-        for release_filter, release_replace in release_filters:
-            os_release_: str = re.sub(release_filter, release_replace, os_release_)
-
-        return os_release_
-
-    issue_file: str = u"/etc/issue"
-    if os.path.isfile(issue_file):
-        with open(issue_file, mode=u"r", encoding=u"utf-8") as isf:
-            info_release: str = isf.read()
-        os_release_: str = info_release[0]
-
-        os_release_: str = re.sub(r"\s+\\n.*", u"", os_release_)
-
-        return os_release_
-
-    return u"Unknown OS release"
 
 
 def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
@@ -1039,7 +930,8 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
 # TODO finish system info function
 def system_info(option: tuner.Option) -> None:
     # TODO set results object
-    fp.info_print(os_release(), option)
+    os_release: str = platform.release()
+    fp.info_print(os_release, option)
     if is_virtual_machine():
         fp.info_print(u"Machine Type:\t\t\t\t\t: Virtual Machine", option)
         # TODO set results object
@@ -1216,7 +1108,7 @@ def system_recommendations(
             ), option)
             recommendations.append(
                 u"Consider dedicating a server for your database installation with less services running on!"
-           )
+            )
         else:
             fp.info_print(f"There are less than {option.max_port_allowed} opened ports on this server", option)
 
@@ -1384,7 +1276,9 @@ def security_recommendations(
             # Looking for User with user/ uppercase /capitalise user as password
             mysql_capital_password_query_file: str = osp.join(info.query_dir, u"capital-password-query.sql")
             with open(mysql_capital_password_query_file, mode=u"r", encoding=u"utf-8") as mcpqf:
-                mysql_capital_password_query: sqla.Text = sqla.text(mcpqf.replace(u":password_column", password_column))
+                mysql_capital_password_query: sqla.Text = sqla.text(
+                    mcpqf.read().replace(u":password_column", password_column)
+                )
             result = sess.execute(mysql_capital_password_query, password=password)
             CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
             capital_password_users: typ.Sequence[str] = [
@@ -1413,7 +1307,7 @@ def security_recommendations(
 def replication_status(option: tuner.Option) -> None:
     fp.subheader_print(u"Replication Metrics", option)
     # TODO get info from variable gathering function
-    #fp.info_print(f"Galera Synchronous replication {option.}", option)
+    # fp.info_print(f"Galera Synchronous replication {option.}", option)
 
 
 def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
@@ -1642,8 +1536,8 @@ def calculations(
     calc.max_peak_memory = (
         calc.server_buffers +
         calc.max_total_per_thread_buffers +
-        performance_memory(option) +
-        gcache_memory(option)
+        performance_memory(option, info, sess) +
+        gcache_memory(option, info)
     )
     calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
 
@@ -1835,7 +1729,7 @@ def calculations(
             stat.com_replace
         )
 
-        if stat.total_reads == 0:
+        if calc.total_reads == 0:
             calc.pct_reads = 0
         else:
             calc.pct_reads = int(
@@ -2023,13 +1917,18 @@ def mysql_pfs(
     return recommendations, adjusted_vars
 
 
-def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, stat: tuner.Stat) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_ariadb(
+    option: tuner.Option,
+    info: tuner.Info,
+    calc: tuner.Calc,
+    stat: tuner.Stat
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for AriaDB
 
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Calc calc:
-    :param tuner.Stat stat
+    :param tuner.Stat stat:
 
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
@@ -2049,7 +1948,7 @@ def mariadb_ariadb(option: tuner.Option, info: tuner.Info, calc: tuner.Calc, sta
             u"Unable to calculate AriaDB indexes on remote MySQL server < 5.0.0"
         )
     elif calc.total_ariadb_indexes == 0:
-        fp.bad_print(u"None of your AriaDB tables are indexed - add indexes immediately")
+        fp.bad_print(u"None of your AriaDB tables are indexed - add indexes immediately", option)
     else:
         ariadb_pagecache_size_message: str = (
             u"AriaDB pagecache size / total AriaDB indexes: "
@@ -2363,10 +2262,9 @@ def dump_result(result: typ.Any, option: tuner.Option, info: tuner.Info) -> None
 
         _template_model: str = template_model(option, info)
         with open(option.report_file, mode=u"w", encoding="utf-8") as rf:
-            rf.write(template_model().replace(u":data", data))
+            rf.write(template_model(option, info).replace(u":data", data))
 
     # TODO do something with json?
     # if option.json:
     #    if option.pretty_json:
     #        json.dumps()
-
