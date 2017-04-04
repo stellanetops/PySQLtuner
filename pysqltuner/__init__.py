@@ -2372,22 +2372,16 @@ def mysql_innodb(
     return recommendations, adjusted_vars
 
 
-# TODO Database metrics
 def mysql_databases(
     sess: orm.session.Session,
     option: tuner.Option,
-    info: tuner.Info,
-    stat: tuner.Stat,
-    calc: tuner.Calc
+    info: tuner.Info
 ) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for database metrics
 
     :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
-    :param tuner.Stat stat:
-    :param tuenr.Calc calc:
-
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2413,7 +2407,7 @@ def mysql_databases(
 
     databases_info_query_file: str = osp.join(info.query_dir, u"databases-info-query.sql")
     with open(databases_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
-        databases_info_query: str = diqf.read()
+        databases_info_query: sqla.Text = sqla.text(diqf.read())
     result = sess.execute(databases_info_query)
     DatabasesInfo = clct.namedtuple(u"DatabasesInfo", result.keys())
     databases_info: DatabasesInfo = [
@@ -2434,7 +2428,7 @@ def mysql_databases(
 
     table_collation_query_file: str = osp.join(info.query_dir, u"all-table-collations-query.sql")
     with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as atcqf:
-        table_collation_query: str = atcqf.read()
+        table_collation_query: sqla.Text = sqla.text(atcqf.read())
     result = sess.execute(table_collation_query)
     TableCollation = clct.namedtuple(u"TableCollation", result.keys())
     table_collations: TableCollation = [
@@ -2452,7 +2446,7 @@ def mysql_databases(
 
     table_engine_query_file: str = osp.join(info.query_dir, u"all-table-engines-query.sql")
     with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as ateqf:
-        table_engine_query: str = ateqf.read()
+        table_engine_query: sqla.Text = sqla.text(ateqf.read())
     result = sess.execute(table_engine_query)
     TableEngine = clct.namedtuple(u"TableEngine", result.keys())
     table_engines: TableEngine = [
@@ -2476,9 +2470,9 @@ def mysql_databases(
 
     database_info_query_file: str = osp.join(info.query_dir, u"database-info-query.sql")
     with open(database_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
-        database_info_query: str = diqf.read()
+        database_info_query: sqla.Text = sqla.text(diqf.read())
     for database in databases:
-        result = sess.execute(database_info_query.replace(u":TABLE_SCHEMA", database))
+        result = sess.execute(database_info_query, TABLE_SCHEMA=database)
         DatabaseInfo = clct.namedtuple(u"DatabaseInfo", result.keys())
         database_info: DatabaseInfo = [
             DatabaseInfo(*database_info)
@@ -2498,8 +2492,8 @@ def mysql_databases(
 
         table_collation_query_file: str = osp.join(info.query_dir, u"table-collations-query.sql")
         with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as tcqf:
-            table_collation_query: str = tcqf.read()
-        result = sess.execute(table_collation_query)
+            table_collation_query: sqla.Text = sqla.text(tcqf.read())
+        result = sess.execute(table_collation_query, TABLE_SCHEMA=database)
         TableCollation = clct.namedtuple(u"TableCollation", result.keys())
         table_collations: TableCollation = [
             TableCollation(*table_collation)
@@ -2516,10 +2510,10 @@ def mysql_databases(
 
         table_engine_query_file: str = osp.join(info.query_dir, u"table-engines-query.sql")
         with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as teqf:
-            table_engine_query: str = teqf.read()
-        result = sess.execute(table_engine_query)
+            table_engine_query: sqla.Text = sqla.text(teqf.read())
+        result = sess.execute(table_engine_query, TABLE_SCHEMA=database)
         TableEngine = clct.namedtuple(u"TableEngine", result.keys())
-        table_engines: TableEngine = [
+        table_engines: typ.Sequence[TableEngine] = [
             TableEngine(*table_engine)
             for table_engine in result.fetchall()
         ]
@@ -2556,12 +2550,71 @@ def mysql_databases(
         else:
             fp.good_print(f"{database_info.ENGINE_COUNT} engine for database {database}", option)
 
-        # TODO finish distinct column checks
+        character_set_query_file: str = osp.join(info.query_dir, u"character-set-query.sql")
+        with open(character_set_query_file, mode=u"r", encoding=u"utf-8") as csqf:
+            character_set_query: sqla.Text = sqla.text(csqf.read())
+        result = sess.execute(character_set_query, TABLE_SCHEMA=database)
+        CharacterSet = clct.namedtuple(u"CharacterSet", result.keys())
+        character_sets: typ.Sequence[CharacterSet] = [
+            CharacterSet(*character_set)
+            for character_set in result.fetchall()
+        ]
+        all_character_sets: str = ", ".join(
+            character_set.CHARACTER_SET_NAME
+            for character_set in character_sets
+        )
+
+        fp.info_print(f"Character sets for {database} database table column: {all_character_sets}", option)
+
+        character_set_count: int = len(all_character_sets)
+        if character_set_count > 1:
+            fp.bad_print(
+                f"{character_set_count} table columns have several character sets defined for all text like columns",
+                option
+            )
+            recommendations.append(
+                f"Limit character sets for column to one character set if possible for {database} database"
+            )
+        else:
+            fp.good_print(
+                f"{character_set_count} table columns have several character sets defined for all text like columns",
+                option
+            )
+
+        collation_query_file: str = osp.join(info.query_dir, u"collation-query.sql")
+        with open(collation_query_file, mode=u"r", encoding=u"utf-8") as cqf:
+            collation_query: sqla.Text = sqla.text(cqf.read())
+        result = sess.execute(collation_query, TABLE_SCHEMA=database)
+        Collation = clct.namedtuple(u"Collation", result.keys())
+        collations: typ.Sequence[Collation] = [
+            Collation(*collation)
+            for collation in result.fetchall()
+            ]
+        all_collations: str = ", ".join(
+            collation.COLLATION_NAME
+            for collation in collations
+        )
+
+        fp.info_print(f"Collations for {database} database table column: {all_collations}", option)
+
+        collation_count: int = len(all_collations)
+        if collation_count > 1:
+            fp.bad_print(
+                f"{collation_count} table columns have several collations defined for all text like columns",
+                option
+            )
+            recommendations.append(
+                f"Limit collations for column to one collation if possible for {database} database"
+            )
+        else:
+            fp.good_print(
+                f"{collation_count} table columns have several collations defined for all text like columns",
+                option
+            )
 
     return recommendations, adjusted_vars
 
 
-# TODO Index metrics
 def mysql_indexes(
     sess: orm.session.Session,
     option: tuner.Option,
@@ -2577,6 +2630,61 @@ def mysql_indexes(
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+
+    if not option.idx_stat:
+        return recommendations, adjusted_vars
+
+    fp.subheader_print(u"Indexes Metrics", option)
+    if (info.ver_major, info.ver_minor) < (5, 5):
+        fp.info_print(u"Skip Index metrics from information schema missing in this version", option)
+        return recommendations, adjusted_vars
+
+    worst_indexes_query_file: str = osp.join(info.query_dir, u"worst-indexes-query.sql")
+    with open(worst_indexes_query_file, mode=u"r", encoding=u"utf-8") as wiqf:
+        worst_indexes_query: sqla.Text = sqla.text(wiqf.read())
+    result = sess.execute(worst_indexes_query)
+    WorstIndex = clct.namedtuple(u"WorstIndex", result.keys())
+    worst_indexes: typ.Sequence[WorstIndex] = [
+        WorstIndex(*worst_index)
+        for worst_index in result.fetchall()
+    ]
+    fp.info_print(u"Worst Selectivity Indexes", option)
+    for worst_index in worst_indexes:
+        fp.debug_print(f"{worst_index}", option)
+        fp.info_print(f"Index: {worst_index.INDEX}", option)
+
+        fp.info_print(f" +-- COLUMN      : {worst_index.SCHEMA_TABLE}", option)
+        fp.info_print(f" +-- SEQ_NUM     : {worst_index.SEQ_IN_INDEX} sequence(s)", option)
+        fp.info_print(f" +-- MAX_COLS    : {worst_index.MAX_COLUMNS} column(s)", option)
+        fp.info_print(f" +-- CARDINALITY : {worst_index.CARDINALITY} distinct values", option)
+        fp.info_print(f" +-- ROW_AMOUNT  : {worst_index.ROW_AMOUNT} rows", option)
+        fp.info_print(f" +-- INDEX_TYPE  : {worst_index.INDEX_TYPE}", option)
+        fp.info_print(f" +-- SELECTIVITY : {worst_index.SELECTIVITY}%", option)
+
+        # TODO fill result object
+
+        if worst_index.SELECTIVITY < 25:
+            fp.bad_print(f"{worst_index.INDEX} has a low selectivity", option)
+
+    if not info.performance_schema:
+        return recommendations, adjusted_vars
+
+    unused_indexes_query_file: str = osp.join(info.query_dir, u"unused-indexes-query.sql")
+    with open(unused_indexes_query_file, mode=u"r", encoding=u"utf-8") as uiqf:
+        unused_indexes_query: sqla.Text = sqla.text(uiqf.read())
+    result = sess.execute(unused_indexes_query)
+    UnusedIndex = clct.namedtuple(u"UnusedIndex", result.keys())
+    unused_indexes: typ.Sequence[UnusedIndex] = [
+        UnusedIndex(*unused_index)
+        for unused_index in result.fetchall()
+    ]
+    fp.info_print(u"Unused Indexes", option)
+    if len(unused_indexes) > 0:
+        recommendations.append(u"Remove unused indexes.")
+    for unused_index in unused_indexes:
+        fp.debug_print(f"{unused_index}", option)
+        fp.bad_print(f"Index: {unused_index.INDEX} on {unused_index.SCHEMA_TABLE} is not used", option)
+        # TODO add to result object
 
     return recommendations, adjusted_vars
 

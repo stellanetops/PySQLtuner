@@ -1,0 +1,10 @@
+SELECT
+  `col`.`COLLATION_NAME` AS `COLLATION_NAME`
+FROM
+  `information_schema`.`COLUMNS` AS `col`
+WHERE
+  `col`.`COLLATION_NAME` IS NOT NULL
+  AND
+    `col`.`TABLE_SCHEMA` = :TABLE_SCHEMA
+GROUP BY
+  `col`.`COLLATION_NAME`;
