@@ -1,0 +1,6 @@
+SELECT
+  `tbl`.`TABLE_COLLATION` AS `TABLE_COLLATION`
+FROM
+  `information_schema`.`TABLES` AS `tbl`
+GROUP BY
+  `tbl`.`TABLE_COLLATION`;

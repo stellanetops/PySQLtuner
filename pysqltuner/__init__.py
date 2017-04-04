@@ -2393,6 +2393,171 @@ def mysql_databases(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
+    if not option.db_stat:
+        return recommendations, adjusted_vars
+
+    fp.subheader_print(u"Database Metrics", option)
+    if (info.ver_major, info.ver_minor) >= (5, 5):
+        fp.info_print(u"Skip Database metrics from information schema missing in this version", option)
+        return recommendations, adjusted_vars
+
+    database_query: str = u"SHOW DATABASES;"
+    result = sess.execute(database_query)
+    Database = clct.namedtuple(u"Database", result.keys())
+    databases: typ.Sequence[str] = [
+        Database(*database).Database
+        for database in result.fetchall()
+    ]
+
+    fp.info_print(f"There are {len(databases)} Databases", option)
+
+    databases_info_query_file: str = osp.join(info.query_dir, u"databases-info-query.sql")
+    with open(databases_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
+        databases_info_query: str = diqf.read()
+    result = sess.execute(databases_info_query)
+    DatabasesInfo = clct.namedtuple(u"DatabasesInfo", result.keys())
+    databases_info: DatabasesInfo = [
+        DatabasesInfo(*databases_info)
+        for databases_info in result.fetchall()
+    ][0]
+    fp.info_print(u"All Databases:", option)
+    fp.info_print(f" +-- TABLE      : {databases_info.TABLE_COUNT}", option)
+    fp.info_print(f" +-- ROWS       : {databases_info.ROW_AMOUNT}", option)
+    fp.info_print((
+        f" +-- DATA       : {util.bytes_to_string(databases_info.DATA_SIZE)} "
+        f"({util.percentage(databases_info.DATA_SIZE, databases_info.TOTAL_SIZE)}%)"
+    ), option)
+    fp.info_print((
+        f" +-- INDEX      : {util.bytes_to_string(databases_info.INDEX_SIZE)} "
+        f"({util.percentage(databases_info.INDEX_SIZE, databases_info.TOTAL_SIZE)}%)"
+    ), option)
+
+    table_collation_query_file: str = osp.join(info.query_dir, u"all-table-collations-query.sql")
+    with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as atcqf:
+        table_collation_query: str = atcqf.read()
+    result = sess.execute(table_collation_query)
+    TableCollation = clct.namedtuple(u"TableCollation", result.keys())
+    table_collations: TableCollation = [
+        TableCollation(*table_collation)
+        for table_collation in result.fetchall()
+    ]
+    all_table_collations: str = ", ".join(
+        table_collation.TABLE_COLLATION
+        for table_collation in table_collations
+    )
+    fp.info_print((
+        f" +-- COLLATION  : {databases_info.COLLATION_COUNT} "
+        f"({all_table_collations})"
+    ), option)
+
+    table_engine_query_file: str = osp.join(info.query_dir, u"all-table-engines-query.sql")
+    with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as ateqf:
+        table_engine_query: str = ateqf.read()
+    result = sess.execute(table_engine_query)
+    TableEngine = clct.namedtuple(u"TableEngine", result.keys())
+    table_engines: TableEngine = [
+        TableEngine(*table_engine)
+        for table_engine in result.fetchall()
+    ]
+    all_table_engines: str = ", ".join(
+        table_engine.TABLE_COLLATION
+        for table_engine in table_engines
+    )
+    fp.info_print((
+        f" +-- ENGINE     : {databases_info.ENGINE_COUNT} "
+        f"({all_table_engines})"
+
+    ), option)
+
+    # TODO set result object
+
+    if not (option.silent and option.json):
+        print(u"\n")
+
+    database_info_query_file: str = osp.join(info.query_dir, u"database-info-query.sql")
+    with open(database_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
+        database_info_query: str = diqf.read()
+    for database in databases:
+        result = sess.execute(database_info_query.replace(u":TABLE_SCHEMA", database))
+        DatabaseInfo = clct.namedtuple(u"DatabaseInfo", result.keys())
+        database_info: DatabaseInfo = [
+            DatabaseInfo(*database_info)
+            for database_info in result.fetchall()
+        ][0]
+        fp.info_print(f"Database: {database}", option)
+        fp.info_print(f" +-- TABLE      : {database_info.TABLE_COUNT}", option)
+        fp.info_print(f" +-- ROWS       : {database_info.ROW_AMOUNT}", option)
+        fp.info_print((
+            f" +-- DATA       : {util.bytes_to_string(database_info.DATA_SIZE)} "
+            f"({util.percentage(database_info.DATA_SIZE, database_info.TOTAL_SIZE)}%)"
+        ), option)
+        fp.info_print((
+            f" +-- INDEX      : {util.bytes_to_string(database_info.INDEX_SIZE)} "
+            f"({util.percentage(database_info.INDEX_SIZE, database_info.TOTAL_SIZE)}%)"
+        ), option)
+
+        table_collation_query_file: str = osp.join(info.query_dir, u"table-collations-query.sql")
+        with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as tcqf:
+            table_collation_query: str = tcqf.read()
+        result = sess.execute(table_collation_query)
+        TableCollation = clct.namedtuple(u"TableCollation", result.keys())
+        table_collations: TableCollation = [
+            TableCollation(*table_collation)
+            for table_collation in result.fetchall()
+        ]
+        all_table_collations: str = ", ".join(
+            table_collation.TABLE_COLLATION
+            for table_collation in table_collations
+        )
+        fp.info_print((
+            f" +-- COLLATION  : {database_info.COLLATION_COUNT} "
+            f"({all_table_collations})"
+        ), option)
+
+        table_engine_query_file: str = osp.join(info.query_dir, u"table-engines-query.sql")
+        with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as teqf:
+            table_engine_query: str = teqf.read()
+        result = sess.execute(table_engine_query)
+        TableEngine = clct.namedtuple(u"TableEngine", result.keys())
+        table_engines: TableEngine = [
+            TableEngine(*table_engine)
+            for table_engine in result.fetchall()
+        ]
+        all_table_engines: str = ", ".join(
+            table_engine.TABLE_COLLATION
+            for table_engine in table_engines
+        )
+        fp.info_print((
+            f" +-- ENGINE     : {database_info.ENGINE_COUNT} "
+            f"({all_table_engines})"
+
+        ), option)
+
+        if database_info.DATA_LENGTH < database_info.INDEX_LENGTH:
+            fp.bad_print(f"Index size is larger than data size for {database}", option)
+        if database_info.ENGINE_COUNT > 1:
+            fp.bad_print(f"There are {database_info.ENGINE_COUNT} storage engines. Be careful.", option)
+
+        # TODO set result object
+
+        if database_info.COLLATION_COUNT > 1:
+            fp.bad_print(f"{database_info.COLLATION_COUNT} different collations for database {database}", option)
+            recommendations.append(
+                f"Check all table collations are identical for all tables in {database} database"
+            )
+        else:
+            fp.good_print(f"{database_info.COLLATION_COUNT} collation for database {database}", option)
+
+        if database_info.ENGINE_COUNT > 1:
+            fp.bad_print(f"{database_info.ENGINE_COUNT} different engines for database {database}", option)
+            recommendations.append(
+                f"Check all table engines are identical for all tables in {database} database"
+            )
+        else:
+            fp.good_print(f"{database_info.ENGINE_COUNT} engine for database {database}", option)
+
+        # TODO finish distinct column checks
+
     return recommendations, adjusted_vars
 
 

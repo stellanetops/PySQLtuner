@@ -1,0 +1,8 @@
+SELECT
+  `tbl`.`TABLE_COLLATION` AS `TABLE_COLLATION`
+FROM
+  `information_schema`.`TABLES` AS `tbl`
+WHERE
+  `tbl`.`TABLE_SCHEMA` = :TABLE_SCHEMA
+GROUP BY
+  `tbl`.`TABLE_COLLATION`;
