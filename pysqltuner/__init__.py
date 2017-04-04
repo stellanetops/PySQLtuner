@@ -2139,7 +2139,6 @@ def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List
     return recommendations, adjusted_vars
 
 
-# TODO 300 line function mysql_innodb
 def mysql_innodb(
     sess: orm.session.Session,
     option: tuner.Option,
@@ -2175,16 +2174,202 @@ def mysql_innodb(
     if option.buffers:
         fp.info_print(u"InnoDB Buffers", option)
 
-        if info.innodb_buffer_pool_size > 0:
-            fp.info_print(f" +-- InnoDB Buffer Pool: {util.string_to_bytes(info.innodb_buffer_pool_size)}", option)
+        fp.info_print(f" +-- InnoDB Buffer Pool: {util.bytes_to_string(info.innodb_buffer_pool_size)}", option)
 
-        if info.innodb_buffer_pool_instances > 0:
-            fp.info_print((
-                u" +-- InnoDB Buffer Pool Instances:"
-                f" {util.string_to_bytes(info.innodb_buffer_pool_instances)}"
-            }, option)
+        fp.info_print((
+            u" +-- InnoDB Buffer Pool Instances:"
+            f" {util.bytes_to_string(info.innodb_buffer_pool_instances)}"
+        ), option)
 
-        # TODO more checks
+        fp.info_print((
+            u" +-- InnoDB Buffer Pool Chunk Size:"
+            f" {util.bytes_to_string(info.innodb_buffer_pool_chunk_size)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Additional Mem Pool:"
+            f" {util.bytes_to_string(info.innodb_additional_mem_pool_size)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Log File Size:"
+            f" {util.bytes_to_string(info.innodb_log_file_size)}"
+            f"({calc.innodb_log_size_pct}% of buffer pool)"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Log Files In Group:"
+            f" {util.bytes_to_string(info.innodb_log_files_in_group)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Total Log File Size:"
+            f" {util.bytes_to_string(info.innodb_log_files_in_group * info.innodb_log_file_size)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Log Buffer:"
+            f" {util.bytes_to_string(info.innodb_log_buffer_size)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Log Buffer Free:"
+            f" {util.bytes_to_string(stat.innodb_buffer_pool_pages_free)}"
+        ), option)
+
+        fp.info_print((
+            u" +-- InnoDB Log Buffer Used:"
+            f" {util.bytes_to_string(stat.innodb_buffer_pool_pages_total)}"
+        ), option)
+
+    fp.info_print((
+        u" +-- InnoDB Thread Concurrency:"
+        f" {util.bytes_to_string(info.innodb_thread_concurrency)}"
+    ), option)
+
+    if info.innodb_file_per_table:
+        fp.good_print(u"InnoDB file per table is activated", option)
+    else:
+        fp.bad_print(u"InnoDB file per table is not activated", option)
+        adjusted_vars.append(u"innodb_file_per_table=ON")
+
+    # TODO figure out engine_stat
+    # InnoDB Buffer Pool Size
+    if info.innodb_buffer_pool_size > engine_stat.innodb:
+        fp.good_print((
+            u"InnoDB Buffer Pool / Data size: "
+            f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
+            f"{util.bytes_to_string(engine_stat.innodb)}"
+        ), option)
+    else:
+        fp.bad_print((
+            u"InnoDB Buffer Pool / Data size: "
+            f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
+            f"{util.bytes_to_string(engine_stat.innodb)}"
+        ), option)
+        adjusted_vars.append(
+            f"innodb_buffer_pool_size (>= {util.bytes_to_string(engine_stat.innodb)}) if possible."
+        )
+
+    if 20 <= calc.innodb_log_size_pct <= 30:
+        fp.good_print((
+            u"InnoDB Log file size / InnoDB Buffer pool size "
+            f"({calc.innodb_log_size_pct}%): "
+            f"{util.bytes_to_string(info.innodb_log_file_size)} * "
+            f"{info.innodb_log_files_in_group} / "
+            f"{util.bytes_to_string(info.innodb_buffer_pool_size)} "
+            u"should be equal 25%"
+        ), option)
+    else:
+        fp.bad_print((
+            u"InnoDB Log file size / InnoDB Buffer pool size "
+            f"({calc.innodb_log_size_pct}%): "
+            f"{util.bytes_to_string(info.innodb_log_file_size)} * "
+            f"{info.innodb_log_files_in_group} / "
+            f"{util.bytes_to_string(info.innodb_buffer_pool_size)} "
+            u"should be equal 25%"
+        ), option)
+        adjusted_vars.append((
+            u"innodb_log_file_size * innodb_log_files_in_group should be equal to 25% of buffer pool size "
+            f"(={util.bytes_to_string(info.innodb_buffer_pool_size * info.innodb_log_files_in_group / 4)}) "
+            u"if possible"
+        ))
+
+    # InnoDB Buffer Pool Instances (MySQL 5.6.6+)
+    # Bad Value if > 64
+    if info.innodb_buffer_pool_instances > 64:
+        fp.bad_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", option)
+        adjusted_vars.append(u"innodb_buffer_pool_instances (<= 64)")
+
+    # InnoDB Buffer Pool Size > 1 GB
+    if info.innodb_buffer_pool_size > 1 * 1024 ** 3:
+        # InnoDB Buffer Pool Size / 1 GB = InnoDB Buffer Pool Instances limited to 64 max.
+        # InnoDB Buffer Pool Size > 64 GB
+        max_innodb_buffer_pool_instances: int = min(int(info.innodb_buffer_pool_size / (1024 ** 3)), 64)
+
+        if info.innodb_buffer_pool_instances == max_innodb_buffer_pool_instances:
+            fp.good_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", option)
+        else:
+            fp.bad_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", option)
+            adjusted_vars.append(f"innodb_buffer_pool_instances (= {max_innodb_buffer_pool_instances})")
+    else:
+        if info.innodb_buffer_pool_instances == 1:
+            fp.good_print(f"InnoDB Buffer pool instances {info.innodb_buffer_pool_instances}", option)
+        else:
+            fp.bad_print(u"InnoDB Buffer pool <= 1 GB and innodb_buffer_pool_instances != 1", option)
+            adjusted_vars.append(u"innodb_buffer_pool_instances (== 1)")
+
+    # InnoDB Used Buffer Pool Size vs CHUNK size
+    if info.innodb_buffer_pool_chunk_size:
+        fp.info_print(u"InnoDB Buffer Pool Chunk Size not used or defined in your version", option)
+    else:
+        fp.info_print((
+            u"Number of InnoDB Buffer Pool Chunks: "
+            f"{info.innodb_buffer_pool_size} / {info.innodb_buffer_pool_chunk_size} for "
+            f"{info.innodb_buffer_pool_instances} Buffer Pool Instance(s)"
+        ), option)
+
+        if info.innodb_buffer_pool_size % (info.innodb_buffer_pool_chunk_size * info.innodb_buffer_pool_instances) == 0:
+            fp.good_print((
+                u"innodb_buffer_pool_size aligned with innodb_buffer_pool_chunk_size & innodb_buffer_pool_instances"
+            ), option)
+        else:
+            fp.bad_print((
+                u"innodb_buffer_pool_size not aligned with innodb_buffer_pool_chunk_size & innodb_buffer_pool_instances"
+            ), option)
+            adjusted_vars.append((
+                u"innodb_buffer_pool_size must always be equal to "
+                u"or a multiple of innodb_buffer_pool_chunk_size * innodb_buffer_pool_instances"
+            ))
+
+    # InnoDB Read Efficiency
+    if calc.pct_read_efficiency > 90:
+        fp.good_print((
+            f"{calc.pct_read_efficiency}% "
+            f"({stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads} hits / "
+            f"{stat.innodb_buffer_pool_read_requests} total)"
+        ), option)
+    else:
+        fp.bad_print((
+            f"{calc.pct_read_efficiency}% "
+            f"({stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads} hits / "
+            f"{stat.innodb_buffer_pool_read_requests} total)"
+        ), option)
+
+    # InnoDB Write Efficiency
+    if calc.pct_write_efficiency > 90:
+        fp.good_print((
+            f"{calc.pct_read_efficiency}% "
+            f"({stat.innodb_log_write_requests - stat.innodb_log_writes} hits / "
+            f"{stat.innodb_log_write_requests} total)"
+        ), option)
+    else:
+        fp.bad_print((
+            f"{calc.pct_read_efficiency}% "
+            f"({stat.innodb_log_write_requests - stat.innodb_log_writes} hits / "
+            f"{stat.innodb_log_write_requests} total)"
+        ), option)
+
+    # InnoDB Log Waits
+    if calc.pct_read_efficiency > 90:
+        fp.good_print((
+            u"InnoDB Log Waits:"
+            f"{util.percentage(stat.innodb_log_waits, stat.innodb_log_writes)}% "
+            f"({stat.innodb_log_waits} waits / "
+            f"{stat.innodb_log_writes} writes)"
+        ), option)
+    else:
+        fp.bad_print((
+            u"InnoDB Log Waits:"
+            f"{util.percentage(stat.innodb_log_waits, stat.innodb_log_writes)}% "
+            f"({stat.innodb_log_waits} waits / "
+            f"{stat.innodb_log_writes} writes)"
+        ), option)
+        adjusted_vars.append(
+            f"innodb_log_buffer_size (>= {util.bytes_to_string(info.innodb_log_buffer_size)})"
+        )
+
+    # TODO set result object
 
     return recommendations, adjusted_vars
 

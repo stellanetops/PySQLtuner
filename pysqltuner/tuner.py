@@ -164,8 +164,8 @@ class Info:
         self.open_files_limit: int = 0
         self.innodb_log_file_size: int = 0
         self.innodb_log_files_in_group: int = 0
-        self.innodb_buffer_pool_pages_free: int = 0
-        self.innodb_buffer_pool_pages_total: int = 0
+        self.innodb_thread_concurrency: int = 0
+        self.innodb_file_per_table: bool = True
         self.log_bin: bool = False
         self.have_threadpool: bool = False
         self.thread_pool_size: int = 0
@@ -269,6 +269,7 @@ class Stat:
         self.innodb_log_write_requests: int = 1
         self.innodb_buffer_pool_pages_free: int = 0
         self.innodb_buffer_pool_pages_total: int = 0
+        self.innodb_log_waits: int = 0
         self.binlog_cache_use: int = 0
         self.binlog_cache_disk_use: int = 0
 
