@@ -2140,7 +2140,6 @@ def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List
 
 
 def mysql_innodb(
-    sess: orm.session.Session,
     option: tuner.Option,
     info: tuner.Info,
     stat: tuner.Stat,
@@ -2148,7 +2147,6 @@ def mysql_innodb(
 ) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for InnoDB
 
-    :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
