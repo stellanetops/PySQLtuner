@@ -32,7 +32,7 @@ __email__: str = u"immanuelqrw@gmail.com"
 def usage() -> None:
     """Prints information about PySQLtuner's script"""
     usage_file: str = osp.join(osp.dirname(__file__), u"..")
-    with open(usage_file, mode =u"r", encoding="utf-8") as uf:
+    with open(usage_file, mode=u"r", encoding="utf-8") as uf:
         usage_msg: str = uf.read().replace(
             u":version",
             __version__
@@ -149,6 +149,8 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
             swap_memory: int = 0
             fp.bad_print(u"Assuming 0 MB of swap space (Use --force-swap to specify, option", option)
     else:
+        physical_memory: int = 0
+        swap_memory: int = 0
         try:
             if re.match(r"Linux|CYGWIN", current_os):
                 linux_mem_cmd: typ.Sequence[str] = (
@@ -649,8 +651,12 @@ def mysql_setup(option: tuner.Option) -> bool:
                 raise ConnectionRefusedError
 
 
-# TODO finish all functions below this comment
-def tuning_info(option: tuner.Option, sess: orm.session.Session) -> None:
+def tuning_info(sess: orm.session.Session) -> None:
+    """Gathers tuning information
+
+    :param orm.session.Session sess:
+    :return:
+    """
     result = sess.execute(r"\w\s")
     # TODO set result values
     for line in result.fetchall():
@@ -935,7 +941,6 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     return recommendations, adjusted_vars
 
 
-# TODO finish system info function
 def system_info(option: tuner.Option) -> None:
     # TODO set results object
     os_release: str = platform.release()
@@ -1544,7 +1549,7 @@ def calculations(
     calc.max_peak_memory = (
         calc.server_buffers +
         calc.max_total_per_thread_buffers +
-        performance_memory(option, info, sess) +
+        performance_memory(info, sess) +
         gcache_memory(option, info)
     )
     calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
@@ -1622,7 +1627,7 @@ def calculations(
     elif info.ver_major >= 5:
         myisam_index_query_file: str = osp.join(info.query_dir, u"myisam-index-query.sql")
         with open(myisam_index_query_file, mode=u"r", encoding=u"utf-8") as miqf:
-            myisam_query: str = miqf.read()
+            myisam_query: sqla.Text = sqla.text(miqf.read())
             result = sess.execute(myisam_query)
             Index = clct.namedtuple(u"Index", result.keys())
             index_sizes: typ.Sequence[int] = [
@@ -1638,7 +1643,7 @@ def calculations(
 
         ariadb_index_query_file: str = osp.join(info.query_dir, u"aria-index-query.sql")
         with open(ariadb_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
-            ariadb_query: str = aqf.read()
+            ariadb_query: sqla.Text = sqla.text(aqf.read())
             result = sess.execute(ariadb_query)
             Index = clct.namedtuple(u"Index", result.keys())
             index_sizes: typ.Sequence[int] = [
@@ -1646,8 +1651,8 @@ def calculations(
                 for index in [
                     Index(*index)
                     for index in result.fetchall()
-                    ]
                 ]
+            ]
 
             for index_size in index_sizes:
                 calc.total_ariadb_indexes += index_size
@@ -1795,7 +1800,6 @@ def mysql_stats(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     return recommendations, adjusted_vars
 
 
-# TODO finish MyISAM recommendations
 def mysql_myisam(
     option: tuner.Option,
     info: tuner.Info,
@@ -1815,6 +1819,65 @@ def mysql_myisam(
     adjusted_vars: typ.List[str] = []
 
     fp.subheader_print(u"MyISAM Metrics", option)
+
+    # Key Buffer usage
+    key_buffer_used_msg: str = (
+        f"Key Buffer used: {calc.pct_key_buffer_used}% "
+        f"({util.bytes_to_string(info.key_buffer_size * calc.pct_key_buffer_used / 100)} "
+        f"used / {util.bytes_to_string(info.key_buffer_size)} cache)"
+    )
+
+    if calc.pct_key_buffer_used == 90:
+        fp.debug_print(key_buffer_used_msg, option)
+    elif calc.pct_key_buffer_used < 90:
+        fp.bad_print(key_buffer_used_msg, option)
+    else:
+        fp.good_print(key_buffer_used_msg, option)
+
+    # Key Buffer
+    if calc.total_myisam_indexes == 0 and option.do_remote:
+        recommendations.append(u"Unable to calculate MyISAM indexes on remote MySQL server < 5.0.0")
+    elif calc.total_myisam_indexes == 0:
+        fp.bad_print(u"None of your MyISAM tables are indexed - add indexes immediately", option)
+    else:
+        key_buffer_size_msg: str = (
+            f"Key Buffer Size / Total MyISAM indexes: "
+            f"{util.bytes_to_string(info.key_buffer_size)} / "
+            f"{util.bytes_to_string(calc.total_myisam_indexes)}"
+        )
+        if info.key_buffer_size < calc.total_myisam_indexes and calc.pct_keys_from_memory < 95:
+            fp.bad_print(key_buffer_size_msg, option)
+            adjusted_vars.append(f"key_buffer_size (> {util.bytes_to_string(calc.total_myisam_indexes)})")
+        else:
+            fp.good_print(key_buffer_size_msg, option)
+
+        read_key_buffer_msg: str = (
+            f"Read Key Buffer Hit Rate: {calc.pct_keys_from_memory}% "
+            f"({util.bytes_to_string(stat.key_read_requests)} cached / "
+            f"{util.bytes_to_string(stat.key_reads)} reads)"
+        )
+        if stat.key_read_requests > 0:
+            if calc.pct_keys_from_memory < 95:
+                fp.bad_print(read_key_buffer_msg, option)
+            else:
+                fp.good_print(read_key_buffer_msg, option)
+        else:
+            # No Queries have run that would use keys
+            fp.debug_print(read_key_buffer_msg, option)
+
+        write_key_buffer_msg: str = (
+            f"Write Key Buffer Hit Rate: {calc.pct_write_keys_from_memory}% "
+            f"({util.bytes_to_string(stat.key_write_requests)} cached / "
+            f"{util.bytes_to_string(stat.key_writes)} writes)"
+        )
+        if stat.key_write_requests > 0:
+            if calc.pct_write_keys_from_memory < 95:
+                fp.bad_print(write_key_buffer_msg, option)
+            else:
+                fp.good_print(write_key_buffer_msg, option)
+        else:
+            # No Queries have run that would use keys
+            fp.debug_print(write_key_buffer_msg, option)
 
     return recommendations, adjusted_vars
 
@@ -1874,10 +1937,9 @@ def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[t
     return recommendations, adjusted_vars
 
 
-def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> int:
+def performance_memory(info: tuner.Info, sess: orm.session.Session) -> int:
     """Gets Performance schema memory taken
 
-    :param tuner.Option option:
     :param tuner.Info info:
     :param orm.session.Session sess:
     :return int:
@@ -1888,7 +1950,7 @@ def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session
 
     pf_memory_query_file: str = osp.join(info.query_dir, u"performance_schema-memory-query.sql")
     with open(pf_memory_query_file, mode=u"r", encoding=u"utf-8") as pfmqf:
-        pf_memory_query: str = pfmqf.read()
+        pf_memory_query: sqla.Text = sqla.text(pfmqf.read())
         result = sess.execute(pf_memory_query)
         Memory = clct.namedtuple(u"Memory", result.keys())
         memory_sizes: typ.Sequence[int] = [
@@ -1896,8 +1958,8 @@ def performance_memory(option: tuner.Option, info: tuner.Info, sess: orm.session
             for memory in [
                 Memory(*memory)
                 for memory in result.fetchall()
-                ]
             ]
+        ]
     return sum(memory_sizes)
 
 
@@ -2106,7 +2168,7 @@ def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
     if not galera_options:
         return u""
 
-    galera_match : str = f"\s*{key} ="
+    galera_match: str = f"\s*{key} ="
     memory_values: typ.Sequence[str] = [
         galera_option for galera_option in galera_options
         if re.match(galera_match, galera_option)
@@ -2125,16 +2187,33 @@ def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
     return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
 
 
-def mariadb_galera(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_galera(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for Galera
 
     :param tuner.Option option:
+    :param tuner.Info info:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
     # TODO fill galera mariadb in -- needs result
+    fp.subheader_print(u"Galera Metrics", option)
+
+    # Galera Cluster
+    if not info.have_galera:
+        fp.info_print(u"Galera is disabled.", option)
+
+    fp.info_print(u"Galera is enabled.", option)
+    fp.debug_print(u"Galera variables:", option)
+    fp.debug_print(f"\twsrep_provider_options = {info.wsrep_provider_options}", option)
+    # TODO set result object
+
+    fp.debug_print(u"Galera wsrep provider options:", option)
+    # TODO set result object
+    # wsrep_options(option, info)
+
+    # TODO rest of function
 
     return recommendations, adjusted_vars
 
@@ -2747,14 +2826,12 @@ def dump_result(result: typ.Any, option: tuner.Option, info: tuner.Info) -> None
     fp.debug_print(f"HTML REPORT: {option.report_file}", option)
 
     if option.report_file:
-        # TODO fill template with data somehow
-        data: str = result
-
         _template_model: str = template_model(option, info)
         with open(option.report_file, mode=u"w", encoding="utf-8") as rf:
-            rf.write(template_model(option, info).replace(u":data", data))
+            rf.write(_template_model.replace(u":data", json.dumps(result, sort_keys=True, indent=4)))
 
-    # TODO do something with json?
-    # if option.json:
-    #    if option.pretty_json:
-    #        json.dumps()
+    if option.json:
+        if option.pretty_json:
+            print(json.dumps(result, sort_keys=True, indent=4))
+        else:
+            print(json.dumps(result))

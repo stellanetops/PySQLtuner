@@ -5,7 +5,6 @@ Module to contain the tuner classes
 import collections as clct
 import functools as funct
 import getpass as gp
-import os
 import os.path as osp
 import sqlalchemy.orm as orm
 import typing as typ
@@ -88,7 +87,7 @@ class Option:
 
     @funct.lru_cache()
     @property
-    def banned_ports(self) -> typ.Sequence[str]:
+    def banned_ports(self) -> typ.Sequence[int]:
         return self._banned_ports
 
     @banned_ports.setter
