@@ -186,6 +186,7 @@ class Info:
         self.wsrep_notify_cmd: str = None
         self.wsrep_sst_method: str = None
         self.wsrep_osu_method: str = None
+        self.wsrep_max_ws_size: int = None
         self.log_error_file: str = None
         self.ignore_builtin_innodb: bool = False
         self.gtid_mode = None
@@ -282,6 +283,13 @@ class Stat:
         self.binlog_cache_use: int = 0
         self.binlog_cache_disk_use: int = 0
         self.wsrep_cluster_size: int = 0
+        self.wsrep_cluster_status: str = None
+        self.wsrep_connected: bool = False
+        self.wsrep_ready: bool = False
+        self.wsrep_cluster_state_uuid: str = None
+        self.wsrep_local_state_uuid: str = None
+        self.wsrep_local_state_comment: str = None
+        self.wsrep_local_cert_failures: int = 0
 
 
 class Calc:

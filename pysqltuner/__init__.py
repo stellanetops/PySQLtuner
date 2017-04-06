@@ -2172,7 +2172,7 @@ def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> int:
         if re.match(galera_match, galera_option)
     ]
 
-    return int(memory_values[0])
+    return util.string_to_bytes(memory_values[0])
 
 
 def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
@@ -2182,7 +2182,7 @@ def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
     :param tuner.Info info:
     :return int:
     """
-    return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
+    return wsrep_option(option, info, u"gcache.size")
 
 
 def mariadb_galera(
@@ -2343,8 +2343,57 @@ def mariadb_galera(
             fp.good_print(f"Galera SST method is based on xtrabackup", option)
         else:
             fp.bad_print(u"Galera node name is not xtrabackup based", option)
-            adjusted_vars.append(u"Set up parameter wsrep_sst_method variable to xtrabackup based paramter")
+            adjusted_vars.append(u"Set up parameter wsrep_sst_method variable to xtrabackup based parameter")
 
+        if info.wsrep_osu_method == "TOI":
+            fp.good_print(u"TOI is the default mode for upgrade.", option)
+        else:
+            fp.bad_print(u"Schema upgrades are not replicated automatically.", option)
+            adjusted_vars.append(u"Set wsrep_osu_method = 'TOI'")
+
+        fp.info_print(f"Max WsREP message: {util.bytes_to_string(info.wsrep_max_ws_size)}", option)
+    else:
+        fp.bad_print(u"Galera WsREP is disabled.", option)
+
+    if stat.wsrep_connected:
+        fp.good_print(u"Node is connected", option)
+    else:
+        fp.bad_print(u"Node is not connected", option)
+
+    if stat.wsrep_ready:
+        fp.good_print(u"Node is ready", option)
+    else:
+        fp.bad_print(u"Node is not ready", option)
+
+    fp.info_print(f"Cluster status: {stat.wsrep_cluster_status}", option)
+    if stat.wsrep_cluster_status.title() == u"Primary":
+        fp.good_print(u"Galera cluster is consistent and ready for operations", option)
+    else:
+        fp.bad_print(u"Galera cluster is not consistent and ready", option)
+
+    if stat.wsrep_local_state_uuid == stat.wsrep_cluster_state_uuid:
+        fp.good_print((
+            f"Node and whole cluster at the same level: {stat.wsrep_cluster_state_uuid}"
+        ), option)
+    else:
+        fp.bad_print(u"None and whole cluster not at same level", option)
+        fp.info_print(f"Node    state uuid: {stat.wsrep_local_state_uuid}", option)
+        fp.info_print(f"Cluster state uuid: {stat.wsrep_cluster_state_uuid}", option)
+
+    if stat.wsrep_local_state_comment.title() == u"Synced":
+        fp.good_print(u"Node is synced with whole cluster", option)
+    else:
+        fp.bad_print(u"Node is not synced", option)
+        fp.info_print(f"Node state: {stat.wsrep_local_state_comment}", option)
+
+    if stat.wsrep_local_cert_failures == 0:
+        fp.good_print(u"There are no certification failures detected", option)
+    else:
+        fp.bad_print(f"There are {stat.wsrep_local_cert_failures} certification failure(s) detected", option)
+
+    # TODO weird debug print
+
+    fp.debug_print(",".join(wsrep_options(option, info)), option)
 
     return recommendations, adjusted_vars
 
