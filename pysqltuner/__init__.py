@@ -1172,7 +1172,7 @@ def security_recommendations(
     # Looking for Anonymous users
     mysql_user_query_file: str = osp.join(info.query_dir, u"user-query.sql")
     with open(mysql_user_query_file, mode=u"r", encoding=u"utf-8") as muqf:
-        mysql_user_query: str = muqf.read()
+        mysql_user_query: sqla.Text = sqla.text(muqf.read())
     result = sess.execute(mysql_user_query)
     User = clct.namedtuple(u"User", result.keys())
     users: typ.Sequence[str] = [
@@ -1203,9 +1203,9 @@ def security_recommendations(
         mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_4.sql")
 
     with open(mysql_password_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-        mysql_password_query: str = mpqf.read().replace(u":password_column", password_column)
+        mysql_password_query: sqla.Text = sqla.text(mpqf.read())
 
-    result = sess.execute(mysql_password_query)
+    result = sess.execute(mysql_password_query, password_column=password_column)
     Password = clct.namedtuple(u"Password", result.keys())
     password_users: typ.Sequence[str] = [
         Password(*password).GRANTEE
@@ -1225,7 +1225,7 @@ def security_recommendations(
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
         mysql_plugin_query_file: str = osp.join(info.query_dir, u"plugin-query.sql")
         with open(mysql_plugin_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-            mysql_plugin_query: str = mpqf.read()
+            mysql_plugin_query: sqla.Text = sqla.text(mpqf.read())
 
         result = sess.execute(mysql_plugin_query)
         Plugin = clct.namedtuple(u"Plugin", result.keys())
@@ -1241,8 +1241,8 @@ def security_recommendations(
     # Looking for User with user/ uppercase /capitalise user as password
     mysql_capitalize_query_file: str = osp.join(info.query_dir, f"capitalize-query.sql")
     with open(mysql_capitalize_query_file, mode=u"r", encoding=u"utf-8") as mcqf:
-        mysql_capitalize_query: str = mcqf.read().replace(u":password_column", password_column)
-    result = sess.execute(mysql_capitalize_query)
+        mysql_capitalize_query: sqla.Text = sqla.text(mcqf.read())
+    result = sess.execute(mysql_capitalize_query, password_column=password_column)
     Capitalize = clct.namedtuple(u"Capitalize", result.keys())
     capitalize_users: typ.Sequence[Capitalize] = [
         Capitalize(*user).GRANTEE
@@ -1258,7 +1258,7 @@ def security_recommendations(
         ))
     mysql_host_query_file: str = osp.join(info.query_dir, u"host-query.sql")
     with open(mysql_host_query_file, mode=u"r", encoding=u"utf-8") as mhqf:
-        mysql_host_query: str = mhqf.read()
+        mysql_host_query: sqla.Text = sqla.text(mhqf.read())
     result = sess.execute(mysql_host_query)
     Host = clct.namedtuple(u"Host", result.keys())
     host_users: typ.Sequence[str] = [
@@ -1289,10 +1289,8 @@ def security_recommendations(
             # Looking for User with user/ uppercase /capitalise user as password
             mysql_capital_password_query_file: str = osp.join(info.query_dir, u"capital-password-query.sql")
             with open(mysql_capital_password_query_file, mode=u"r", encoding=u"utf-8") as mcpqf:
-                mysql_capital_password_query: sqla.Text = sqla.text(
-                    mcpqf.read().replace(u":password_column", password_column)
-                )
-            result = sess.execute(mysql_capital_password_query, password=password)
+                mysql_capital_password_query: sqla.Text = sqla.text(mcpqf.read())
+            result = sess.execute(mysql_capital_password_query, password=password, password_column=password_column)
             CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
             capital_password_users: typ.Sequence[str] = [
                 CapitalPassword(*user).GRANTEE
@@ -2153,7 +2151,7 @@ def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
     return galera_options
 
 
-def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
+def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> int:
     """
 
     :param tuner.Option option:
@@ -2162,11 +2160,11 @@ def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
     :return str:
     """
     if not info.wsrep_provider_options:
-        return u""
+        return 0
 
     galera_options: typ.Sequence[str] = wsrep_options(option, info)
     if not galera_options:
-        return u""
+        return 0
 
     galera_match: str = f"\s*{key} ="
     memory_values: typ.Sequence[str] = [
@@ -2174,7 +2172,7 @@ def wsrep_option(option: tuner.Option, info: tuner.Info, key: str) -> str:
         if re.match(galera_match, galera_option)
     ]
 
-    return memory_values[0]
+    return int(memory_values[0])
 
 
 def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
@@ -2187,11 +2185,18 @@ def gcache_memory(option: tuner.Option, info: tuner.Info) -> int:
     return util.string_to_bytes(wsrep_option(option, info, u"gcache.size"))
 
 
-def mariadb_galera(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def mariadb_galera(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    stat: tuner.Stat
+) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for Galera
 
+    :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
+    :param tuner.Stat stat:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2205,15 +2210,141 @@ def mariadb_galera(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.L
         fp.info_print(u"Galera is disabled.", option)
 
     fp.info_print(u"Galera is enabled.", option)
-    fp.debug_print(u"Galera variables:", option)
-    fp.debug_print(f"\twsrep_provider_options = {info.wsrep_provider_options}", option)
+    # fp.debug_print(u"Galera variables:", option)
     # TODO set result object
 
     fp.debug_print(u"Galera wsrep provider options:", option)
+    galera_options: typ.Sequence[str] = wsrep_options(option, info)
     # TODO set result object
-    # wsrep_options(option, info)
+    for galera_option in galera_options:
+        fp.debug_print(f"\t{galera_option.strip()}", option)
 
-    # TODO rest of function
+    # fp.debug_print(u"Galera status:", option)
+    # TODO set result object
+
+    fp.info_print(f"GCache is using {util.bytes_to_string(wsrep_option(option, info, key=u'gcache.mem_size'))}", option)
+
+    wsrep_slave_threads: int = wsrep_option(option, info, key=u"wsrep_slave_threads")
+    cpu_count: int = psu.cpu_count()
+    if wsrep_slave_threads < 3 * cpu_count or wsrep_slave_threads > 4 * cpu_count:
+        fp.bad_print(u"wsrep_slave_threads is not between 3 to 4 times the number of CPU(s)", option)
+        adjusted_vars.append(u"wsrep_slave_threads = 4 * # of Core CPU")
+    else:
+        fp.good_print(u"wsrep_slave_threads is between 3 to 4 times the number of CPU(s)", option)
+
+    gcs_limit: int = wsrep_option(option, info, key=u"gcs.limit")
+    if gcs_limit != 5 * wsrep_slave_threads:
+        fp.bad_print(u"gcs.limit should be equal to 5 * wsrep_slave_threads", option)
+        adjusted_vars.append(u"wsrep_slave_threads = 5 * # wsrep_slave_threads")
+    else:
+        fp.good_print(u"gcs.limit is equal to 5 * wsrep_slave_threads", option)
+
+    wsrep_flow_control_paused: int = wsrep_option(option, info, key=u"wsrep_flow_control_paused")
+    if wsrep_flow_control_paused > 0.02:
+        fp.bad_print(u"Flow control fraction > 0.02", option)
+    else:
+        fp.good_print(u"Flow control fraction seems to be OK", option)
+
+    non_primary_key_table_query_file: str = osp.join(info.query_dir, u"non_primary-key-table-query.sql")
+    with open(non_primary_key_table_query_file, mode=u"r", encoding=u"utf-8") as npktqf:
+        non_primary_key_table_query: sqla.Text = sqla.text(npktqf.read())
+
+    result = sess.execute(non_primary_key_table_query)
+    NonPrimaryKeyTable = clct.namedtuple(u"NonPrimaryKeyTable", result.keys())
+    non_primary_key_tables: typ.Sequence[str] = [
+        NonPrimaryKeyTable(*non_primary_key_table).TABLE
+        for non_primary_key_table in result.fetchall()
+    ]
+
+    if len(non_primary_key_tables) > 0:
+        fp.bad_print(u"Following table(s) don't have primary keys:", option)
+        for non_primary_key_table in non_primary_key_tables:
+            fp.bad_print(f"\t{non_primary_key_table}", option)
+            # TODO assign to result object
+    else:
+        fp.good_print(u"All tables have a primary key", option)
+
+    non_innodb_table_query_file: str = osp.join(info.query_dir, u"non_innodb-table-query.sql")
+    with open(non_innodb_table_query_file, mode=u"r", encoding=u"utf-8") as nitqf:
+        non_innodb_table_query: sqla.Text = sqla.text(nitqf.read())
+
+    result = sess.execute(non_innodb_table_query)
+    NonInnoDBTable = clct.namedtuple(u"NonInnoDBTable", result.keys())
+    non_innodb_tables: typ.Sequence[str] = [
+        NonInnoDBTable(*non_innodb_table).TABLE
+        for non_innodb_table in result.fetchall()
+        ]
+
+    if len(non_innodb_tables) > 0:
+        fp.bad_print(u"Following table(s) are not InnoDB table(s):", option)
+        for non_innodb_table in non_innodb_tables:
+            fp.bad_print(f"\t{non_innodb_table}", option)
+            recommendations.append(u"Ensure that all tables are InnoDB tables for Galera replciation")
+            # TODO assign to result object
+    else:
+        fp.good_print(u"All tables are InnoDB tables", option)
+
+    if info.binlog_format != u"ROW":
+        fp.bad_print(u"Binlog format should be in ROW mode.", option)
+        adjusted_vars.append(u"binlog_format = ROW")
+    else:
+        fp.bad_print(u"Binlog format is in ROW mode.", option)
+
+    if info.innodb_flush_log_at_trx_commit:
+        fp.bad_print(u"InnoDB flush log at each commit should be disabled.", option)
+        adjusted_vars.append(u"innodb_flush_log_at_trx_commit = False")
+    else:
+        fp.good_print(u"InnoDB flush log at each commit is disabled", option)
+
+    fp.info_print(f"Read consistency mode: {info.wsrep_causal_reads}", option)
+    if info.wsrep_cluster_name and info.wsrep_on:
+        fp.good_print(u"Galera WsREP is enabled.", option)
+        if info.wsrep_cluster_address.strip():
+            fp.good_print(f"Galera Cluster address is defined: {info.wsrep_cluster_address}", option)
+
+            nodes: typ.Sequence[str] = info.wsrep_cluster_address.split(u",")
+            fp.info_print(f"There are {len(nodes)} nodes in wsrep_cluster_size", option)
+
+            node_amount: int = stat.wsrep_cluster_size
+            if node_amount in (3, 5):
+                fp.good_print(f"There are {node_amount} nodes in wsrep_cluster_size", option)
+            else:
+                fp.bad_print((
+                    f"There are {node_amount} nodes in wsrep_cluster_size. "
+                    u"Prefer 3 or 5 node architecture"
+                ), option)
+                recommendations.append(u"Prefer 3 or 5 node architecture")
+
+            # wsrep_cluster_address doesn't include garbd nodes
+            if len(nodes) > node_amount:
+                fp.bad_print((
+                    u"All cluster nodes are not detected. "
+                    u"wsrep_cluster_size less then node count in wsrep_cluster_address"
+                ), option)
+            else:
+                fp.good_print(u"All cluster nodes detected.", option)
+        else:
+            fp.bad_print(u"Galera Cluster address is undefined", option)
+            adjusted_vars.append(u"Set up wsrep_cluster_name variable for Galera replication")
+
+        if info.wsrep_node_name.strip():
+            fp.good_print(f"Galera node name is defined: {info.wsrep_node_name}", option)
+        else:
+            fp.bad_print(u"Galera node name is not defined", option)
+            adjusted_vars.append(u"Set up wsrep_node_name variable for Galera replication")
+
+        if info.wsrep_notify_cmd.strip():
+            fp.good_print(f"Galera notify command is defined: {info.wsrep_notify_cmd}", option)
+        else:
+            fp.bad_print(u"Galera notify command is not defined", option)
+            adjusted_vars.append(u"Set up wsrep_notify_cmd variable for Galera replication")
+
+        if "xtrabackup" in info.wsrep_sst_method.strip():
+            fp.good_print(f"Galera SST method is based on xtrabackup", option)
+        else:
+            fp.bad_print(u"Galera node name is not xtrabackup based", option)
+            adjusted_vars.append(u"Set up parameter wsrep_sst_method variable to xtrabackup based paramter")
+
 
     return recommendations, adjusted_vars
 

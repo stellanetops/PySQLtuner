@@ -178,10 +178,20 @@ class Info:
         self.have_spider: bool = False
         self.have_connect: bool = False
         self.wsrep_provider_options: str = None
+        self.wsrep_causal_reads: str = None
+        self.wsrep_cluster_name: str = None
+        self.wsrep_on: bool = False
+        self.wsrep_cluster_address: str = None
+        self.wsrep_node_name: str = None
+        self.wsrep_notify_cmd: str = None
+        self.wsrep_sst_method: str = None
+        self.wsrep_osu_method: str = None
         self.log_error_file: str = None
         self.ignore_builtin_innodb: bool = False
         self.gtid_mode = None
         self.gtid_strict_mode = None
+        self.binlog_format: str = None
+        self.innodb_flush_log_at_trx_commit: bool = False
 
         version_query_file: str = osp.join(self.query_dir, u"version-query.sql")
 
@@ -271,6 +281,7 @@ class Stat:
         self.innodb_log_waits: int = 0
         self.binlog_cache_use: int = 0
         self.binlog_cache_disk_use: int = 0
+        self.wsrep_cluster_size: int = 0
 
 
 class Calc:
