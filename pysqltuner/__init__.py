@@ -1348,26 +1348,17 @@ def check_architecture(option: tuner.Option, physical_memory: int) -> None:
     """
     # Checks for 32-bit boxes with more than 2GB of RAM
     if option.do_remote:
-        return None
-    os_name: str = platform.system()
-    bit: str = platform.architecture()[0]
-    if (u"SunOS" in os_name and "64" in bit) or \
-       (u"SunOS" not in os_name and "64" in bit) or \
-       (u"AIX" in os_name and "64" in bit) or \
-       (any(uname in os_name for uname in (u"AIX", u"OpenBSD")) and "64" in bit) or \
-       (u"FreeBSD" in os_name and "64" in bit) or \
-       (u"Darwin" in os_name and "Power Macintosh" in bit) or \
-       (u"Darwin" in os_name and "x86_64" in bit):
-        arch: int = 64
+        return
+    arch_bit: str = platform.architecture()[0]
+    if "64" in arch_bit:
         fp.good_print("Operating on 64-bit architecture", option)
     else:
-        arch: int = 32
         if physical_memory > 2 ** 31:
             fp.bad_print(u"Switch to 64-bit OS - MySQL cannot currently use all of your RAM", option)
         else:
             fp.good_print(u"Operating on a 32-bit architecture with less than 2GB RAM", option)
 
-        # TODO set architecture
+        # TODO set architecture to result object
 
 
 def check_storage_engines(
