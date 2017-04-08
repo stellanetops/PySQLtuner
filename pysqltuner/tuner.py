@@ -6,6 +6,7 @@ import collections as clct
 import functools as funct
 import getpass as gp
 import os.path as osp
+import re
 import sqlalchemy.orm as orm
 import typing as typ
 import pysqltuner.fancy_print as fp
@@ -122,6 +123,89 @@ class Option:
             self.debug_out = u"[DG]"
             self.cmd_out = f"[CMD]({self.me})"
             self.end_out = u""
+
+    @funct.lru_cache()
+    @property
+    def style(self) -> typ.Dict[str, typ.Tuple[bool, str]]:
+        """Outputs print style
+
+        :return typ.Dict[typ.Tuple[bool, str]]: dict of style and whether to print type and how to format
+        """
+        return {
+            u"good": (self.no_good, self.good_out),
+            u"bad": (self.no_bad, self.bad_out),
+            u"info": (self.no_info, self.info_out),
+            u"debug": (self.debug, self.debug_out),
+            u"cmd": (True, self.cmd_out)
+        }
+
+    def format_print(self, line: str, style: str) -> None:
+        """Prints color formatted messages
+
+        :param str line: input message
+        :param str style: type of formatting
+        :return:
+        """
+        no_format, format_out = self.style[style]
+
+        fp.format_print(line, no_format, format_out, self.silent, self.json)
+
+    def subheader_print(self, line: str, line_spaces: int = 8, line_total: int = 100) -> None:
+        """Prints subheader
+
+        :param str line: subheader title
+        :param int line_spaces: indentation
+        :param int line_total: total length of line
+        :return:
+        """
+        fp.subheader_print(line, self.silent, self.json, line_spaces, line_total)
+
+    def info_print_ml(self, lines: typ.Sequence[str]) -> None:
+        """Prints each line in info array
+
+        :param typ.Sequence[str] lines: array of info messages
+        :return:
+        """
+        for line in lines:
+            info_line: str = f"\t{line.strip()}"
+            self.format_print(info_line, style="info")
+
+    def info_print_cmd(self, lines: typ.Sequence[str]) -> None:
+        """Prints each line in command info array
+
+        :param typ.Sequence[str] lines: array of info messages
+        :return:
+        """
+        self.format_print(f"{lines}", style=u"cmd")
+        info_lines: typ.Sequence[str] = [
+            line
+            for line in lines
+            if line
+            and not re.match(r"/^\s*$/", line)
+        ]
+        self.info_print_ml(info_lines)
+
+    def info_print_header_cmd(self, subheader_line: str, info_lines: typ.Sequence[str]) -> None:
+        """Prints header and information
+
+        :param str subheader_line: subheader
+        :param typ.Sequence[str] info_lines: array of information
+        :return:
+        """
+        fp.subheader_print(subheader_line, self.silent, self.json)
+        self.info_print_cmd(info_lines)
+
+    def color_wrap(self, line: str, color: str) -> str:
+        """Wraps string in formatting to color red
+
+        :param str line: string to be printed
+        :param str color: color to be printed
+        :return:
+        """
+        if self.no_color:
+            return line
+        else:
+            return fp.color_wrap(line, color)
 
 
 class Info:

@@ -22,7 +22,6 @@ import sqlalchemy as sqla
 import sqlalchemy.orm as orm
 import pysqltuner.tuner as tuner
 import typing as typ
-import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
 
 __version__: str = u"0.0.1"
