@@ -129,9 +129,13 @@ def pretty_uptime(uptime: int) -> str:
     return hf_uptime
 
 
-def connection_params(config_file: str=None,
-                      host: str=None, username: str=None, password: str=None,
-                      database: str= None) -> typ.Dict[str, str]:
+def connection_params(
+    config_file: str=None,
+    host: str=None,
+    username: str=None,
+    password: str=None,
+    database: str= None
+) -> typ.Dict[str, str]:
     parsed_config: typ.Dict[str, typ.Any] = yaml.load(config_file)
     Config = clct.namedtuple("Config", parsed_config.keys())
     config: Config = Config(*parsed_config)

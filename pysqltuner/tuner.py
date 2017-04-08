@@ -8,6 +8,7 @@ import getpass as gp
 import os.path as osp
 import sqlalchemy.orm as orm
 import typing as typ
+import pysqltuner.fancy_print as fp
 
 
 class Option:
@@ -189,8 +190,8 @@ class Info:
         self.wsrep_max_ws_size: int = None
         self.log_error_file: str = None
         self.ignore_builtin_innodb: bool = False
-        self.gtid_mode = None
-        self.gtid_strict_mode = None
+        self.gtid_mode: str = None
+        self.gtid_strict_mode: str = None
         self.binlog_format: str = None
         self.innodb_flush_log_at_trx_commit: bool = False
 
@@ -290,6 +291,8 @@ class Stat:
         self.wsrep_local_state_uuid: str = None
         self.wsrep_local_state_comment: str = None
         self.wsrep_local_cert_failures: int = 0
+        self.bytes_sent: int = 0
+        self.bytes_received: int = 0
 
 
 class Calc:
