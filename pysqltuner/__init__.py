@@ -495,7 +495,10 @@ def mysql_setup(option: tuner.Option) -> bool:
             login_status: str = util.get(login_command)
 
             if not re.match(r"mysqld is alive", login_status):
-                option.format_print(u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed", style=u"bad")
+                option.format_print(
+                    u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed",
+                    style=u"bad"
+                )
                 raise ConnectionRefusedError
 
     elif util.is_readable(u"/usr/local/directadmin/conf/mysql.conf") and not option.do_remote:
@@ -645,7 +648,10 @@ def mysql_setup(option: tuner.Option) -> bool:
                     # Did this go well because of a .my.cnf file or is there no password set?
                     user_path: str = os.environ["HOME"].strip()
                     if not os.path.exists(f"{user_path}/.my.cnf"):
-                        option.format_print(u"Successfully authenticated with no password - SECURITY RISK!", style=u"bad")
+                        option.format_print(
+                            u"Successfully authenticated with no password - SECURITY RISK!",
+                            style=u"bad"
+                        )
 
                 return True
             else:
@@ -1125,7 +1131,10 @@ def system_recommendations(
                 u"Consider dedicating a server for your database installation with less services running on!"
             )
         else:
-            option.format_print(f"There are less than {option.max_port_allowed} opened ports on this server", style=u"info")
+            option.format_print(
+                f"There are less than {option.max_port_allowed} opened ports on this server",
+                style=u"info"
+            )
 
     for banned_port in banned_ports:
         if is_open_port(banned_port):
@@ -1237,7 +1246,10 @@ def security_recommendations(
         ])
 
         if plugin_amount >= 1:
-            option.format_print(u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated", style=u"info")
+            option.format_print(
+                u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated",
+                style=u"info"
+            )
             return recommendations, adjusted_vars
 
     # Looking for User with user/ uppercase /capitalise user as password
