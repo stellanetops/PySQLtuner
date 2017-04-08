@@ -139,18 +139,23 @@ class Option:
             u"cmd": (True, self.cmd_out)
         }
 
-    def format_print(self, line: str, style: str) -> None:
+    def format_print(self, line: str, style: str, line_spaces: int=8, line_total:int=100) -> None:
         """Prints color formatted messages
 
         :param str line: input message
         :param str style: type of formatting
+        :param int line_spaces: indentation
+        :param int line_total: total length of line
         :return:
         """
+        if style == u"subheader":
+            return self.subheader_print(line, line_spaces, line_total)
+
         no_format, format_out = self.style[style]
 
         fp.format_print(line, no_format, format_out, self.silent, self.json)
 
-    def subheader_print(self, line: str, line_spaces: int = 8, line_total: int = 100) -> None:
+    def subheader_print(self, line: str, line_spaces: int=8, line_total: int=100) -> None:
         """Prints subheader
 
         :param str line: subheader title
