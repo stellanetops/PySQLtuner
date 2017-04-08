@@ -3,10 +3,8 @@ Module to generate recommendations for change to MySQL
 """
 
 import os
-import psycopg2
 import typing as typ
 import pysqltuner.tuner as tuner
-import pysqltuner.fancy_print as fp
 import pysqltuner.util as util
 
 
@@ -32,32 +30,32 @@ def log_file_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequ
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.subheader_print(u"Log File Recommendations")
+    option.format_print(u"Log File Recommendations", style=u"subheader")
     file_size: int = os.path.getsize(info.log_error_file)
-    fp.info_print((
+    option.format_print((
         f"Log File: {info.log_error_file}({util.bytes_to_string(file_size)})"
-    ), option)
+    ), style=u"info")
 
     if os.path.isfile(info.log_error_file):
-        option.good_print(f"Log File {info.log_error_file} exists")
+        option.format_print(f"Log File {info.log_error_file} exists", style=u"good")
     else:
-        option.bad_print(f"Log File {info.log_error_file} doesn't exist")
+        option.format_print(f"Log File {info.log_error_file} doesn't exist", style=u"bad")
 
     if util.is_readable(info.log_error_file):
-        option.good_print(f"Log File {info.log_error_file} is readable")
+        option.format_print(f"Log File {info.log_error_file} is readable", style=u"good")
     else:
-        option.bad_print(f"Log File {info.log_error_file} isn't readable")
+        option.format_print(f"Log File {info.log_error_file} isn't readable", style=u"bad")
         return recommendations, adjusted_vars
 
     if file_size > 0:
-        option.good_print(f"Log File {info.log_error_file} is not empty")
+        option.format_print(f"Log File {info.log_error_file} is not empty", style=u"good")
     else:
-        option.bad_print(f"Log File {info.log_error_file} is empty")
+        option.format_print(f"Log File {info.log_error_file} is empty", style=u"bad")
 
     if file_size < 32 * 1024 ** 2:
-        option.good_print(f"Log File {info.log_error_file} is smaller than 32 MB")
+        option.format_print(f"Log File {info.log_error_file} is smaller than 32 MB", style=u"good")
     else:
-        option.bad_print(f"Log File {info.log_error_file} is bigger than 32 MB")
+        option.format_print(f"Log File {info.log_error_file} is bigger than 32 MB", style=u"bad")
         recommendations.append(
             f"{info.log_error_file} is > 32 MB, analyze why or implement a log rotation strategy such as logrotate!"
         )
@@ -75,7 +73,7 @@ def log_file_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequ
                     u"error"
                 )
             ):
-                option.debug_print(f"{line_num}: {content}")
+                option.format_print(f"{line_num}: {content}", style=u"debug")
 
             if u"error" in content.lower():
                 errors += 1
@@ -88,28 +86,28 @@ def log_file_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequ
                 last_starts.append(content)
 
     if warnings > 0:
-        option.bad_print(f"{info.log_error_file} contains {warnings} warning(s).")
+        option.format_print(f"{info.log_error_file} contains {warnings} warning(s).", style=u"bad")
         recommendations.append(
             f"Control warning line(s) into {info.log_error_file} file"
         )
     else:
-        option.good_print(f"{info.log_error_file} doesn't contain any warning.")
+        option.format_print(f"{info.log_error_file} doesn't contain any warning.", style=u"good")
 
     if errors > 0:
-        option.bad_print(f"{info.log_error_file} contains {errors} error(s).")
+        option.format_print(f"{info.log_error_file} contains {errors} error(s).", style=u"bad")
         recommendations.append(
             f"Control error line(s) into {info.log_error_file} file"
         )
     else:
-        option.good_print(f"{info.log_error_file} doesn't contain any warning.")
+        option.format_print(f"{info.log_error_file} doesn't contain any warning.", style=u"good")
 
-    option.info_print(f"{len(last_starts)} start(s) detected in {info.log_error_file}")
+    option.format_print(f"{len(last_starts)} start(s) detected in {info.log_error_file}", style=u"info")
 
     for index, last_start in enumerate(reversed(last_starts)):
-        option.info_print(f"{index + 1}) {last_start}")
+        option.format_print(f"{index + 1}) {last_start}", style=u"info")
 
     for index, last_shutdown in enumerate(reversed(last_shutdowns)):
-        option.info_print(f"{index + 1}) {last_shutdown}")
+        option.format_print(f"{index + 1}) {last_shutdown}", style=u"info")
 
     return recommendations, adjusted_vars
 
@@ -124,9 +122,9 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.subheader_print(u"CVE Security Recommendations")
+    option.format_print(u"CVE Security Recommendations", style=u"subheader")
     if not option.cve_file or not os.path.isfile(option.cve_file):
-        option.info_print(u"Skipped due to --cve-file option undefined")
+        option.format_print(u"Skipped due to --cve-file option undefined", style=u"info")
         return recommendations, adjusted_vars
 
     cve_found: int = 0
@@ -141,15 +139,19 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
                 u"with",
                 f"{cve_ver_major}, {cve_ver_minor}, {cve_ver_micro}",
                 u":",
-                u"<=" if (info.ver_major, info.ver_minor, info.ver_micro) <= (cve_ver_major, cve_ver_minor, cve_ver_micro) else ">"
+                (
+                    u"<="
+                    if (info.ver_major, info.ver_minor, info.ver_micro) <= (cve_ver_major, cve_ver_minor, cve_ver_micro)
+                    else ">"
+                )
             ))
-            option.debug_print(ver_compare)
+            option.format_print(ver_compare, style=u"debug")
 
             # Avoid not major/minor version corresponding CVEs
             if not (cve_ver_major, cve_ver_minor) == (info.ver_major, info.ver_minor):
                 if cve_ver_micro >= info.ver_micro:
                     cve_compare: str = f"{cve_[4]} (<= {cve_ver_major}.{cve_ver_minor}.{cve_ver_micro} : {cve_[6]}"
-                    option.bad_print(cve_compare)
+                    option.format_print(cve_compare, style=u"bad")
                     # TODO insert cve_compare into 'result' object
 
                     cve_found += 1
@@ -159,15 +161,15 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
     # TODO set another result object value
 
     if cve_found == 0:
-        option.good_print(u"NO SECURITY CVE FOUND FOR YOUR VERSION")
+        option.format_print(u"NO SECURITY CVE FOUND FOR YOUR VERSION", style=u"good")
         return recommendations, adjusted_vars
 
     if (info.ver_major, info.ver_minor) == (5, 5):
-        option.info_print(u"False positive CVE(s) for MySQL and MariaDB 5.5.x can be found.")
-        option.info_print(u"Check careful each CVE for those particular versions")
+        option.format_print(u"False positive CVE(s) for MySQL and MariaDB 5.5.x can be found.", style=u"info")
+        option.format_print(u"Check careful each CVE for those particular versions", style=u"info")
 
     cve_alert: str = f"{cve_found} CVE(s) found for your MySQL release."
-    option.bad_print(cve_alert)
+    option.format_print(cve_alert, style=u"bad")
 
     recommendations.append(
         f"{cve_found} CVE(s) found for your MySQL release. Consider upgrading your version!"
