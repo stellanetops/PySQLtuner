@@ -117,7 +117,7 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
 
     :param tuner.Option option:
     :param tuner.Info info:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]: list of recommendations, adjusted variables, results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
@@ -128,6 +128,7 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
         return recommendations, adjusted_vars
 
     cve_found: int = 0
+    cves: typ.Sequence[typ.Dict[int, str]] = []
     with open(option.cve_file, mode="r", encoding="utf-8") as cf:
         for line in cf:
             cve_: typ.Sequence[str] = line.split(u";")
@@ -152,8 +153,8 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
                 if cve_ver_micro >= info.ver_micro:
                     cve_compare: str = f"{cve_[4]} (<= {cve_ver_major}.{cve_ver_minor}.{cve_ver_micro} : {cve_[6]}"
                     option.format_print(cve_compare, style=u"bad")
-                    # TODO insert cve_compare into 'result' object
 
+                    cves.append({cve_found: cve_compare})
                     cve_found += 1
             else:
                 continue
@@ -175,4 +176,13 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
         f"{cve_found} CVE(s) found for your MySQL release. Consider upgrading your version!"
     )
 
-    return recommendations, adjusted_vars
+    return (
+        recommendations,
+        adjusted_vars,
+        {
+            u"CVE": {
+                "List": cves,
+                "#": cve_found
+            }
+        }
+    )

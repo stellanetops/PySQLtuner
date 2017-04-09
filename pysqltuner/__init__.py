@@ -20,6 +20,7 @@ import requests as req
 import shutil
 import socket
 import sqlalchemy as sqla
+import sqlalchemy.exc as sqle
 import sqlalchemy.orm as orm
 import pysqltuner.tuner as tuner
 import typing as typ
@@ -195,7 +196,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
             sess.execute("SELECT 1;")
             option.format_print(u"Logged in using credentials passed on the command line", style=u"good")
             return True
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
             raise ConnectionRefusedError
 
@@ -205,7 +206,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
             sess.execute("SELECT 1;")
             option.format_print(u"Logged in using credentials passed from mysql-quickbackup", style=u"good")
             return True
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             option.format_print(
                 u"Attempted to use login credentials from mysql-quickbackup, they were invalid",
                 style=u"bad"
@@ -217,7 +218,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         try:
             sess.execute("SELECT 1;")
             return True
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             option.format_print(
                 u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed",
                 style=u"bad"
@@ -229,7 +230,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         try:
             sess.execute("SELECT 1;")
             return True
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             option.format_print(u"Attempted to use login credentials from DirectAdmin, but they failed", style=u"bad")
             raise ConnectionRefusedError
 
@@ -238,7 +239,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         try:
             sess.execute("SELECT 1;")
             return True
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             option.format_print(u"Logged in using credentials from debian maintenance account.", style=u"good")
             raise ConnectionRefusedError
 
@@ -266,7 +267,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
 
             return True
 
-        except Exception:
+        except sqla.exc.SQLAlchemyError:
             if option.no_ask:
                 option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
                 raise ConnectionRefusedError
@@ -295,7 +296,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
                         )
 
                 return True
-            except Exception:
+            except sqla.exc.SQLAlchemyError:
                 option.format_print(u"Attempted to use login credentials but they were invalid", style=u"bad")
                 raise ConnectionRefusedError
 
@@ -404,21 +405,26 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     }
 
 
-def opened_ports() -> typ.Sequence[str]:
+def opened_ports() -> typ.Sequence[typ.Sequence[str], typ.Dict]:
     """Finds all opened ports
 
-    :return typ.Sequence[str]: array of all opened ports
+    :return typ.Sequence[typ.Sequence[str], typ.Dict]: array of all opened ports, and results
     """
     all_opened_ports: typ.Sequence[typ.Any] = psu.net_connections()
 
-    filtered_ports: typ.Sequence[str] = sorted(
+    open_ports: typ.Sequence[str] = sorted(
         port.laddr[1]
         for port in all_opened_ports
     )
 
-    # TODO include opened ports in results object
-
-    return filtered_ports
+    return (
+        open_ports,
+        {
+            u"Network": {
+                u"TCP Opened": open_ports
+            }
+        }
+    )
 
 
 def is_open_port(port: str) -> bool:
@@ -430,7 +436,7 @@ def is_open_port(port: str) -> bool:
     port_pattern: str = f"^{port}$"
     return any(
         re.search(port_pattern, open_port)
-        for open_port in opened_ports()
+        for open_port in opened_ports()[0]
     )
 
 
@@ -438,11 +444,13 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for filesystem
 
     :param tuner.Option option:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+        list of recommendations and list of adjusted variables and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
+    mount_space: typ.List[typ.Dict[str, float]] = []
     for disk in psu.disk_partitions():
         if disk.opts == u"rw,fixed":
             mount_point: str = disk.mountpoint
@@ -456,18 +464,19 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
             else:
                 option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=u"info")
 
-            # TODO result object assigning
+            mount_space.append({mount_point: space_perc})
 
+    mount_inode: typ.List[typ.Dict[str, float]] = []
     for disk in psu.disk_partitions():
         if disk.opts == u"rw,fixed":
             mount_point: str = disk.mountpoint
             free_space: int = os.statvfs(mount_point).f_bfree
             total_space: int = os.statvfs(mount_point).f_blocks
-            space_perc: float = round(free_space / total_space, 1)
+            inode_perc: float = round(free_space / total_space, 1)
 
-            if space_perc > 85:
+            if inode_perc > 85:
                 option.format_print(
-                    f"Mount point {mount_point} is using {space_perc} % of max allowed inodes",
+                    f"Mount point {mount_point} is using {inode_perc} % of max allowed inodes",
                     style=u"bad"
                 )
                 recommendations.append(
@@ -475,13 +484,22 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
                 )
             else:
                 option.format_print(
-                    f"Mount point {mount_point} is using {space_perc} % of max allowed inodes",
+                    f"Mount point {mount_point} is using {inode_perc} % of max allowed inodes",
                     style=u"info"
                 )
 
-            # TODO result object assigning
+            mount_inode.append({mount_point: inode_perc})
 
-    return recommendations, adjusted_vars
+    return (
+        recommendations,
+        adjusted_vars,
+        {
+            u"Filesystem": {
+                u"Space Percent": mount_space,
+                u"Inode Percent": mount_inode
+            }
+        }
+    )
 
 
 def is_virtual_machine() -> bool:
@@ -606,29 +624,20 @@ def system_info(option: tuner.Option) -> typ.Dict:
     :param tuner.Option option: 
     :return: 
     """
-    # TODO set results object
     os_release: str = platform.release()
     option.format_print(os_release, style=u"info")
 
     virtual_machine: bool = is_virtual_machine()
     if virtual_machine:
         option.format_print(u"Machine Type\t\t\t\t\t: Virtual Machine", style=u"info")
-        # TODO set results object
     else:
         option.format_print(u"Machine Type\t\t\t\t\t: Physical Machine", style=u"info")
-        # TODO set results object
-
-    # TODO set results object
 
     is_connected: bool = req.get(u"http://ipecho.net/plain").status_code == 200
     if is_connected:
         option.format_print(u"Internet\t\t\t\t\t: Connected", style=u"info")
-        # TODO set results object
     else:
-
         option.format_print(u"Internet\t\t\t\t\t: Disconnected", style=u"bad")
-
-    # TODO set several variables in results object
 
     cpu_count: int = psu.cpu_count()
     option.format_print(f"Number of Core CPU : {cpu_count}", style=u"info")
