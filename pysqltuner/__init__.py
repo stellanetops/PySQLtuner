@@ -550,7 +550,7 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     return recommendations, adjusted_vars
 
 
-def system_info(option: tuner.Option) -> None:
+def system_info(option: tuner.Option) -> typ.Dict:
     """Grabs system information
     
     :param tuner.Option option: 
@@ -559,7 +559,9 @@ def system_info(option: tuner.Option) -> None:
     # TODO set results object
     os_release: str = platform.release()
     option.format_print(os_release, style=u"info")
-    if is_virtual_machine():
+
+    virtual_machine: bool = is_virtual_machine()
+    if virtual_machine:
         option.format_print(u"Machine Type\t\t\t\t\t: Virtual Machine", style=u"info")
         # TODO set results object
     else:
@@ -585,7 +587,7 @@ def system_info(option: tuner.Option) -> None:
     option.format_print(f"Operating System Type : {os_type}", style=u"info")
 
     kernel_release: str = platform.release()
-    option.format_print(f"Kernel Release : {os_type}", style=u"info")
+    option.format_print(f"Kernel Release : {kernel_release}", style=u"info")
 
     hostname: str = socket.gethostname()
     option.format_print(f"Hostname\t\t\t\t: {hostname}", style=u"info")
@@ -620,11 +622,31 @@ def system_info(option: tuner.Option) -> None:
         user.name
         for user in psu.users()
     ]
+    for logged_user in logged_users:
+        option.format_print(logged_user, style=u"info")
 
     ram: str = util.bytes_to_string(psu.virtual_memory().free)
     option.format_print(f"Ram Usages in MB\t\t: {ram}", style=u"info")
 
     load_average: str = os.getloadavg()
+
+    return {
+        u"OS": {
+            u"Release": os_release,
+            u"Virtual Machine": virtual_machine,
+            u"# of Cores": cpu_count,
+            u"Type": os_type,
+            u"Kernel": kernel_release,
+            u"Logged Users": logged_users,
+            u"Free Memory Ram": ram,
+            u"Load Average": load_average
+        },
+        u"Network": {
+            u"Connected": is_connected,
+            u"Internal IP": internal_ip,
+            u"External IP": external_ip
+        }
+    }
 
 
 def system_recommendations(
