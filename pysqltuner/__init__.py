@@ -84,13 +84,12 @@ def other_process_memory() -> int:
     return total_other_memory
 
 
-def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, str]:
+def os_setup(option: tuner.Option) -> typ.Dict:
     """Gets name and memory of OS
 
     :param tuner.Option option:
     :return typ.Tuple[str, int, str, int, str, int, str]:
     """
-    current_os: str = platform.system()
     # du_flags: str = u"-b" if re.match(r"Linux", current_os) else u""
     if option.force_mem is not None and option.force_mem > 0:
         physical_memory: int = option.force_mem * 1024 ** 2
@@ -111,21 +110,28 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
 
     process_memory: int = other_process_memory()
 
-    return (
-        current_os,
-        physical_memory,
-        util.bytes_to_string(physical_memory),
-        swap_memory,
-        util.bytes_to_string(swap_memory),
-        process_memory,
-        util.bytes_to_string(process_memory)
-    )
+    return {
+        u"OS": {
+            u"Physical Memory": {
+                u"bytes": physical_memory,
+                u"pretty": util.bytes_to_string(physical_memory)
+            },
+            u"Swap Memory": {
+                u"bytes": swap_memory,
+                u"pretty": util.bytes_to_string(swap_memory),
+            },
+            u"Other Processes": {
+                u"bytes": process_memory,
+                u"pretty": util.bytes_to_string(process_memory)
+            }
+        }
+    }
 
 
 def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
     """Sets up options for mysql
 
-    :param orm.session.Session: session
+    :param orm.session.Session sess: session
     :param tuner.Option option: options object
     :return bool: whether setup was successful
     """
@@ -306,7 +312,7 @@ def tuning_info(sess: orm.session.Session) -> None:
         pass
 
 
-def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> None:
+def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> typ.Dict:
     """Gathers all status variables
 
     :param tuner.Option option: options object
@@ -315,13 +321,13 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     :return:
     """
     # We need to initiate at least one query so that our data is usable
+    version_query: sqla.Text = info.query_from_file(u"version_query.sql")
     try:
-        result = sess.execute(u"SELECT VERSION() AS `VERSION`;")
+        result = sess.execute(version_query)
     except Exception:
         option.format_print(u"Not enough privileges for running PySQLTuner", style=u"bad")
         raise
 
-    # TODO set variables
     Version = clct.namedtuple(u"Version", result.keys())
     version: str = [
         Version(*version).VERSION.split("-")[0]
@@ -329,8 +335,28 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     ][0]
 
     option.format_print(f"VERSION: {version}", style=u"debug")
-    # TODO set results value
-    # TODO assign values to new lists
+
+    variables_query: sqla.Text = info.query_from_file(u"variables-query.sql")
+    result = sess.execute(variables_query)
+    Variable = clct.namedtuple(u"Variable", result.keys())
+    variables: typ.Sequence[typ.Tuple[str, str]] = [
+        (var.NAME, var.VALUE)
+        for var in [
+            Variable(*variable)
+            for variable in result.fetchall()
+        ]
+    ]
+
+    statuses_query: sqla.Text = info.query_from_file(u"statuses-query.sql")
+    result = sess.execute(statuses_query)
+    Status = clct.namedtuple(u"Status", result.keys())
+    statuses: typ.Sequence[typ.Tuple[str, str]] = [
+        (stat.NAME, stat.VALUE)
+        for stat in [
+            Status(*status)
+            for status in result.fetchall()
+        ]
+    ]
 
     if info.wsrep_provider_options:
         info.have_galera = True
@@ -351,7 +377,31 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     # have_* for engines is deprecated and will be removed in MySQL 5.6;
     # check SHOW ENGINES and set corresponding old style variables.
     # Also works around MySQL bug #59393 wrt. skip-innodb
-    # TODO engine stuff
+    engine_support_query = info.query_from_file(u"engine_support-query-5_5.sql")
+    result = sess.execute(engine_support_query)
+    EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
+    engine_supports: typ.Sequence[typ.Dict[str, str]] = [
+        {engs.ENGINE: engs.SUPPORT}
+        for engs in [
+            EngineSupport(*engine_support)
+            for engine_support in result.fetchall()
+        ]
+    ]
+
+    # TODO replication information
+
+    return {
+        u"MySQL Client": {
+            u"Version": version
+        },
+        u"Variables": variables,
+        u"Statuses": statuses,
+        u"Storage Engines": engine_supports,
+        u"Replication": {
+            u"Status": None,
+            u"Slaves": None
+        }
+    }
 
 
 def opened_ports() -> typ.Sequence[str]:
@@ -581,7 +631,7 @@ def system_info(option: tuner.Option) -> typ.Dict:
     # TODO set several variables in results object
 
     cpu_count: int = psu.cpu_count()
-    option.format_print(f"Number of Core CPU : {cpu_amount}", style=u"info")
+    option.format_print(f"Number of Core CPU : {cpu_count}", style=u"info")
 
     os_type: str = platform.system()
     option.format_print(f"Operating System Type : {os_type}", style=u"info")
