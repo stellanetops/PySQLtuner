@@ -139,7 +139,7 @@ class Option:
             u"cmd": (True, self.cmd_out)
         }
 
-    def format_print(self, line: str, style: str, line_spaces: int=8, line_total:int=100) -> None:
+    def format_print(self, line: str, style: str="debug", line_spaces: int=8, line_total: int=100) -> None:
         """Prints color formatted messages
 
         :param str line: input message
