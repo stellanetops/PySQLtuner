@@ -393,39 +393,12 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    s_info: typ.Sequence[str] = util.get((
-        u"df",
-        u"-P",
-        u"|",
-        u"grep",
-        u"'%'"
-    )).split(u"\n")
+    for disk in psu.disk_partitions():
+        if disk.opts == u"rw,fixed":
+            mount_point: str = disk.mountpoint
+            space_perc: float = psu.disk_usage(disk.mountpoint).percent
 
-    i_info: typ.Sequence[str] = util.get((
-        u"df",
-        u"-Pi",
-        u"|",
-        u"grep",
-        u"'%'"
-    )).split(u"\n")[1:]
-
-    info_filters: typ.Sequence[typ.Tuple[str, str]] = (
-        (r".*\s(\d+)%\s+(.*)", u"\1\t\2")
-    )
-    s_info: typ.Sequence[str] = tuple(
-        re.sub(info_filter, info_replace, info)
-        for info in s_info
-        for info_filter, info_replace in info_filters
-    )
-
-    for info in s_info:
-        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)", info):
-            continue
-        matched = re.match(r"(\d+)\t(.*)", info)
-        if matched:
-            space_perc: str = matched.group(1)
-            mount_point: str = matched.group(2)
-            if int(matched.group(1)) > 85:
+            if space_perc > 85:
                 option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=u"bad")
                 recommendations.append(
                     f"Add some space to {mount_point} mount point."
@@ -435,14 +408,14 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
 
             # TODO result object assigning
 
-    for info in i_info:
-        if re.match(r"(\d+)\t", info) and re.match(r"(run|dev|sys|proc)($|/)", info):
-            continue
-        matched = re.match(r"(\d+)\t(.*)", info)
-        if matched:
-            space_perc: str = matched.group(1)
-            mount_point: str = matched.group(2)
-            if int(matched.group(1)) > 85:
+    for disk in psu.disk_partitions():
+        if disk.opts == u"rw,fixed":
+            mount_point: str = disk.mountpoint
+            free_space: int = os.statvfs(mount_point).f_bfree
+            total_space: int = os.statvfs(mount_point).f_blocks
+            space_perc: float = round(free_space / total_space, 1)
+
+            if space_perc > 85:
                 option.format_print(
                     f"Mount point {mount_point} is using {space_perc} % of max allowed inodes",
                     style=u"bad"
@@ -578,26 +551,24 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
 
 
 def system_info(option: tuner.Option) -> None:
+    """Grabs system information
+    
+    :param tuner.Option option: 
+    :return: 
+    """
     # TODO set results object
     os_release: str = platform.release()
     option.format_print(os_release, style=u"info")
     if is_virtual_machine():
-        option.format_print(u"Machine Type:\t\t\t\t\t: Virtual Machine", style=u"info")
+        option.format_print(u"Machine Type\t\t\t\t\t: Virtual Machine", style=u"info")
         # TODO set results object
     else:
-        option.format_print(u"Machine Type:\t\t\t\t\t: Physical Machine", style=u"info")
+        option.format_print(u"Machine Type\t\t\t\t\t: Physical Machine", style=u"info")
         # TODO set results object
 
     # TODO set results object
 
-    connect_command: typ.Sequence[str] = (
-        u"ping",
-        u"-c",
-        u"ipecho.net",
-        u"&>/dev/null"
-    )
-
-    is_connected: bool = True if int(util.get(connect_command)) == 0 else False
+    is_connected: bool = req.get(u"http://ipecho.net/plain").status_code == 200
     if is_connected:
         option.format_print(u"Internet\t\t\t\t\t: Connected", style=u"info")
         # TODO set results object
@@ -607,51 +578,27 @@ def system_info(option: tuner.Option) -> None:
 
     # TODO set several variables in results object
 
-    core_command: typ.Sequence[str] = (
-        u"nproc"
-    )
-    process_amount: int = int(util.get(core_command))
-    option.format_print(f"Number of Core CPU : {process_amount}", style=u"info")
+    cpu_count: int = psu.cpu_count()
+    option.format_print(f"Number of Core CPU : {cpu_amount}", style=u"info")
 
-    os_type_command: typ.Sequence[str] = (
-        u"uname",
-        u"-o"
-    )
-    os_type: str = util.get(os_type_command)
+    os_type: str = platform.system()
     option.format_print(f"Operating System Type : {os_type}", style=u"info")
 
-    kernel_release_command: typ.Sequence[str] = (
-        u"uname",
-        u"-r"
-    )
-    kernel_release: str = util.get(kernel_release_command)
+    kernel_release: str = platform.release()
     option.format_print(f"Kernel Release : {os_type}", style=u"info")
 
-    hostname_command: typ.Sequence[str] = (
-        u"hostname"
-    )
-    hostname: str = util.get(hostname_command)
+    hostname: str = socket.gethostname()
     option.format_print(f"Hostname\t\t\t\t: {hostname}", style=u"info")
 
-    ip_command: typ.Sequence[str] = (
-        u"hostname",
-        u"-I"
-    )
-    ip: str = util.get(ip_command)
-    option.format_print(f"Internal IP\t\t\t\t: {ip}", style=u"info")
+    internal_ip: str = socket.gethostbyname(hostname)
+    option.format_print(f"Internal IP\t\t\t\t: {internal_ip}", style=u"info")
 
-    network_card_command: typ.Sequence[str] = (
-        u"ifconfig",
-        u"|",
-        u"grep",
-        u"-A1",
-        u"mtu"
-    )
     option.format_print(u"Network Cards\t\t\t: ", style=u"info")
-    info_cmd(network_card_command, option, delimiter=u"\t")
+    for network_card in psu.net_if_stats().keys():
+        option.format_print(network_card)
 
     try:
-        external_ip: str = req.get(u"ipecho.net/plain")
+        external_ip: str = req.get(u"http://ipecho.net/plain").text
         option.format_print(f"External IP\t\t\t\t: {external_ip}", style=u"info")
     except req.exceptions.MissingSchema as err:
         option.format_print(f"External IP\t\t\t\t: Can't check because of Internet connectivity", style=u"bad")
