@@ -7,6 +7,7 @@ import functools as funct
 import getpass as gp
 import os.path as osp
 import re
+import sqlalchemy as sqla
 import sqlalchemy.orm as orm
 import typing as typ
 import pysqltuner.fancy_print as fp
@@ -323,6 +324,18 @@ class Info:
         :return int: micro version
         """
         return self._ver_micro
+
+    def query_from_file(self, query_file: str) -> sqla.Text:
+        """Creates SQL query from file and allows formatting
+        
+        :param query_file: 
+        :return: 
+        """
+        query_file_path: str = osp.join(self.query_dir, query_file)
+        with open(query_file_path, mode=u"r", encoding=u"utf-8") as qf:
+            query: sqla.Text = sqla.text(qf.read())
+
+        return query
 
 
 class Stat:

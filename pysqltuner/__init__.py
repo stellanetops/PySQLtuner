@@ -18,6 +18,7 @@ import psutil as psu
 import re
 import requests as req
 import shutil
+import socket
 import sqlalchemy as sqla
 import sqlalchemy.orm as orm
 import pysqltuner.tuner as tuner
@@ -57,53 +58,11 @@ def header_print(option: tuner.Option) -> None:
     option.format_print(header_message, style=u"pretty")
 
 
-def memory_error(option: tuner.Option) -> None:
-    """Prints error message and exits
-
-    :param tuner.Option option: options object
-    :return:
-    """
-    memory_error_message: str = u"\n".join((
-        u"Unable to determine total memory/swap",
-        u"Use '--force-mem and '--force-swap'"
-     ))
-    option.format_print(memory_error_message, style=u"bad")
-    raise MemoryError
-
-
-def get_process_memory(process: str) -> int:
-    """Process to find memory of process
-
-    :param str process: name of process
-    :return int: memory in bytes
-    """
-    memory_command: typ.Sequence[str] = (
-        u"ps",
-        u"-p",
-        f"{process}",
-        u"-o",
-        u"rss"
-    )
-    memory: typ.Sequence[str] = util.get(memory_command)
-
-    if len(memory) != 2:
-        return 0
-    else:
-        return int(memory[1]) * 1024
-
-
 def other_process_memory() -> int:
     """Gathers other processes and returns total memory
 
     :return int: total memory of other processes
     """
-    process_cmd: typ.Sequence[str] = (
-        u"ps",
-        u"eaxo",
-        u"pid,command"
-    )
-    processes: typ.Sequence[str] = util.get(process_cmd)
-
     process_filters: typ.Sequence[typ.Tuple[str, str]] = (
         (r".*PID.*", u""),
         (r".*mysqld.*", u""),
@@ -114,17 +73,13 @@ def other_process_memory() -> int:
         (r"\s*?(\d+)\s*.*", r"\1")
     )
 
-    filtered_processes: typ.List[str] = []
-    for process in processes:
+    total_other_memory: int = 0
+    for process in psu.process_iter():
         for process_filter, process_replace in process_filters:
-            process = re.sub(process_filter, process_replace, process)
+            process = re.sub(process_filter, process_replace, process.name())
         filtered_process: str = process.strip()
         if filtered_process:
-            filtered_processes.append(filtered_process)
-
-    total_other_memory = 0
-    for filtered_process in filtered_processes:
-        total_other_memory += get_process_memory(filtered_process)
+            total_other_memory += process.memory_info().rss
 
     return total_other_memory
 
@@ -135,7 +90,7 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
     :param tuner.Option option:
     :return typ.Tuple[str, int, str, int, str, int, str]:
     """
-    current_os: str = util.get(r"uname").strip()
+    current_os: str = platform.system()
     # du_flags: str = u"-b" if re.match(r"Linux", current_os) else u""
     if option.force_mem is not None and option.force_mem > 0:
         physical_memory: int = option.force_mem * 1024 ** 2
@@ -148,182 +103,8 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
             swap_memory: int = 0
             option.format_print(u"Assuming 0 MB of swap space (Use --force-swap to specify)", style=u"bad")
     else:
-        physical_memory: int = 0
-        swap_memory: int = 0
-        try:
-            if re.match(r"Linux|CYGWIN", current_os):
-                linux_mem_cmd: typ.Sequence[str] = (
-                    u"grep",
-                    u"-i",
-                    u"memtotal:",
-                    u"/proc/meminfo",
-                    u"|",
-                    u"awk",
-                    u"'{print \$2}'"
-                )
-
-                physical_memory: int = int(util.get(linux_mem_cmd))
-                physical_memory *= 1024
-
-                linux_swap_cmd: typ.Sequence[str] = (
-                    u"grep",
-                    u"-i",
-                    u"swaptotal:",
-                    u"/proc/meminfo",
-                    u"|",
-                    u"awk",
-                    u"'{print \$2}'"
-                )
-
-                swap_memory: int = int(util.get(linux_swap_cmd))
-                swap_memory *= 1024
-
-            elif re.match(r"Darwin", current_os):
-                darwin_mem_cmd: typ.Sequence[str] = (
-                    u"sysctl",
-                    u"-n",
-                    u"hw.memsize"
-                )
-
-                physical_memory: int = int(util.get(darwin_mem_cmd))
-
-                darwin_swap_cmd: typ.Sequence[str] = (
-                    u"sysctl"
-                    u"-n",
-                    u"vm.swapusage",
-                    u"|",
-                    u"awk",
-                    u"'{print \$3}'",
-                    u"|",
-                    u"sed",
-                    u"'s/\..*\$//'"
-                )
-
-                swap_memory: int = int(util.get(darwin_swap_cmd))
-
-            elif re.match(r"NetBSD|OpenBSD|FreeBSD", current_os):
-                xbsd_mem_cmd: typ.Sequence[str] = (
-                    u"sysctl",
-                    u"-n",
-                    u"hw.physmem"
-                )
-
-                physical_memory: int = int(util.get(xbsd_mem_cmd))
-                if physical_memory < 0:
-                    xbsd_mem64_cmd: typ.Sequence[str] = (
-                        u"sysctl",
-                        u"-n",
-                        u"hw.physmem64"
-                    )
-
-                    physical_memory: int = int(util.get(xbsd_mem64_cmd))
-
-                xbsd_swap_cmd: typ.Sequence[str] = (
-                    u"swapctl"
-                    u"-l",
-                    u"|",
-                    u"grep",
-                    u"'^/'",
-                    u"|",
-                    u"awk",
-                    u"'{ s+= \$2 }",
-                    u"END",
-                    u"{ print s }"
-                )
-
-                swap_memory: int = int(util.get(xbsd_swap_cmd))
-
-            elif re.match(r"BSD", current_os):
-                bsd_mem_cmd: typ.Sequence[str] = (
-                    u"sysctl",
-                    u"-n",
-                    u"hw.physmem"
-                )
-
-                physical_memory: int = int(util.get(bsd_mem_cmd))
-
-                bsd_swap_cmd: typ.Sequence[str] = (
-                    u"swapinfo"
-                    u"|",
-                    u"grep",
-                    u"'^/'",
-                    u"|",
-                    u"awk",
-                    u"'{ s+= \$2 }",
-                    u"END",
-                    u"{ print s }"
-                )
-
-                swap_memory: int = int(util.get(bsd_swap_cmd))
-
-            elif re.match(r"SunOS", current_os):
-                sun_mem_cmd: typ.Sequence[str] = (
-                    u"/usr/sbin/prtconf",
-                    u"|",
-                    u"grep",
-                    u"Memory",
-                    u"|",
-                    u"cut",
-                    u"-f",
-                    u"3",
-                    u"-d"
-                    u"' u"
-                )
-
-                physical_memory: int = int(util.get(sun_mem_cmd))
-                physical_memory *= 1024 ** 2
-
-                swap_memory: int = 0
-
-            elif re.match(r"AIX", current_os):
-                aix_mem_cmd: typ.Sequence[str] = (
-                    u"lsattr",
-                    u"-El",
-                    u"sys0",
-                    u"|",
-                    u"grep",
-                    u"realmem",
-                    u"awk",
-                    u"'{print \$2}'"
-                )
-
-                physical_memory: int = int(util.get(aix_mem_cmd))
-                physical_memory *= 1024
-
-                aix_swap_cmd: typ.Sequence[str] = (
-                    u"lsps"
-                    u"-as",
-                    u"|",
-                    u"awk",
-                    u"-F\"(MB| +)\"",
-                    u"'/MB",
-                    u"{print \$2}'"
-                )
-
-                swap_memory: int = int(util.get(aix_swap_cmd))
-                swap_memory *= 1024 ** 2
-
-            elif re.match(r"windows", current_os, re.IGNORECASE):
-                win_mem_cmd: typ.Sequence[str] = (
-                    u"wmic",
-                    u"ComputerSystem",
-                    u"get",
-                    u"TotalPhysicalMemory"
-                )
-
-                physical_memory: int = int(util.get(win_mem_cmd))
-
-                win_swap_cmd: typ.Sequence[str] = (
-                    u"wmic",
-                    u"OS",
-                    u"get",
-                    u"FreeVirtualMemory"
-                )
-
-                swap_memory: int = int(util.get(win_swap_cmd))
-
-        except MemoryError:
-            memory_error(option)
+        physical_memory: int = psu.virtual_memory().available
+        swap_memory: int = psu.swap_memory().total
 
     option.format_print(f"Physical Memory: {physical_memory}", style=u"debug")
     option.format_print(f"Swap Memory: {swap_memory}", style=u"debug")
@@ -338,13 +119,13 @@ def os_setup(option: tuner.Option) -> typ.Tuple[str, int, str, int, str, int, st
         util.bytes_to_string(swap_memory),
         process_memory,
         util.bytes_to_string(process_memory)
-
     )
 
 
-def mysql_setup(option: tuner.Option) -> bool:
+def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
     """Sets up options for mysql
 
+    :param orm.session.Session: session
     :param tuner.Option option: options object
     :return bool: whether setup was successful
     """
@@ -404,203 +185,71 @@ def mysql_setup(option: tuner.Option) -> bool:
             option.do_remote: bool = True
 
     if option.user and option.password:
-        mysql_login: str = f"-u {option.user} {option.remote_connect}"
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            u"ping",
-            mysql_login,
-            u"2>&1"
-        )
-        login_status: str = util.get(login_command)
-        if re.match(r"mysqld is alive", login_status):
+        try:
+            sess.execute("SELECT 1;")
             option.format_print(u"Logged in using credentials passed on the command line", style=u"good")
             return True
-        else:
+        except Exception:
             option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
             raise ConnectionRefusedError
 
     svcprop_exe: str = shutil.which(u"svcprop")
     if svcprop_exe.startswith(u"/"):
-        # We are on Solaris
-        svc_user_command: typ.Sequence[str] = (
-            u"svcprop",
-            u"-p",
-            u"quickbackup/username",
-            u"svc:/network/mysql-quickbackup:default"
-        )
-        mysql_login: str = util.get(svc_user_command)
-        mysql_login = re.sub(r"\s+$", u"", mysql_login)
-
-        svc_pass_command: typ.Sequence[str] = (
-            u"svcprop",
-            u"-p",
-            u"quickbackup/password",
-            u"svc:/network/mysql-quickbackup:default"
-        )
-        mysql_pass: str = util.get(svc_pass_command)
-        mysql_pass = re.sub(r"\s+$", u"", mysql_pass)
-
-        if not mysql_login.startswith(u"svcprop"):
-            # mysql-quickbackup is installed
-            mysql_login_connect: str = f"-u {mysql_login} -p{mysql_pass}"
-            login_command: typ.Sequence[str] = (
-                mysqladmin_command,
-                mysql_login_connect,
-                u"ping",
-                u"2>&1"
+        try:
+            sess.execute("SELECT 1;")
+            option.format_print(u"Logged in using credentials passed from mysql-quickbackup", style=u"good")
+            return True
+        except Exception:
+            option.format_print(
+                u"Attempted to use login credentials from mysql-quickbackup, they were invalid",
+                style=u"bad"
             )
-            login_status: str = util.get(login_command)
-            if re.match(r"mysqld is alive", login_status):
-                option.format_print(u"Logged in using credentials passed from mysql-quickbackup", style=u"good")
-                return True
-            else:
-                option.format_print(
-                    u"Attempted to use login credentials from mysql-quickbackup, they were invalid",
-                    style=u"bad"
-                )
-                raise ConnectionRefusedError
+            raise ConnectionRefusedError
 
     elif util.is_readable(u"/etc/psa/.psa.shadow") and not option.do_remote:
         # It's a Plesk box, use the available credentials
-        plesk_command: typ.Sequence[str] = (
-            u"cat",
-            u"/etc/psa/.psa.shadow"
-        )
-        plesk_pass: str = util.get(plesk_command)
-
-        mysql_login: str = f"-u admin -p{plesk_pass}"
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            u"ping",
-            mysql_login,
-            u"2>&1"
-        )
-        login_status: str = util.get(login_command)
-
-        if not re.match(r"mysqld is alive", login_status):
-            # Plesk 10+
-            plesk_command: typ.Sequence[str] = (
-                u"/usr/local/psa/bin/admin",
-                u"--show-password"
+        try:
+            sess.execute("SELECT 1;")
+            return True
+        except Exception:
+            option.format_print(
+                u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed",
+                style=u"bad"
             )
-            plesk_pass: str = util.get(plesk_command)
-
-            mysql_login: str = f"-u admin -p{plesk_pass}"
-            login_command: typ.Sequence[str] = (
-                mysqladmin_command,
-                u"ping",
-                mysql_login,
-                u"2>&1"
-            )
-            login_status: str = util.get(login_command)
-
-            if not re.match(r"mysqld is alive", login_status):
-                option.format_print(
-                    u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed",
-                    style=u"bad"
-                )
-                raise ConnectionRefusedError
+            raise ConnectionRefusedError
 
     elif util.is_readable(u"/usr/local/directadmin/conf/mysql.conf") and not option.do_remote:
         # It's a DirectAdmin box, use the available credentials
-        mysql_user_command: typ.Sequence[str] = (
-            u"cat",
-            u"/usr/local/directadmin/conf/mysql.conf",
-            u"|",
-            u"egrep",
-            u"'^user=.*'"
-        )
-        mysql_user: str = util.get(mysql_user_command)
-
-        mysql_pass_command: typ.Sequence[str] = (
-            u"cat",
-            u"/usr/local/directadmin/conf/mysql.conf",
-            u"|",
-            u"egrep",
-            u"'^passwd=.*'"
-        )
-        mysql_pass: str = util.get(mysql_pass_command)
-
-        user_filters: typ.Sequence[typ.Tuple[str, str]] = (
-            (u"user=u", u""),
-            (u"[\r\n]", u"")
-        )
-        for user_filter, user_replace in user_filters:
-            mysql_user: str = re.sub(user_filter, user_replace, mysql_user)
-
-        pass_filters: typ.Sequence[typ.Tuple[str, str]] = (
-            (u"passwd=u", u""),
-            (u"[\r\n]", u"")
-        )
-        for pass_filter, pass_replace in pass_filters:
-            mysql_pass: str = re.sub(pass_filter, pass_replace, mysql_pass)
-
-        mysql_login: str = f"-u {mysql_user} -p{mysql_pass}"
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            u"ping",
-            mysql_login,
-            u"2>&1"
-        )
-        login_status: str = util.get(login_command)
-
-        if not re.match(r"mysqld is alive", login_status):
+        try:
+            sess.execute("SELECT 1;")
+            return True
+        except Exception:
             option.format_print(u"Attempted to use login credentials from DirectAdmin, but they failed", style=u"bad")
             raise ConnectionRefusedError
 
     elif util.is_readable(u"/etc/mysql/debian.cnf") and not option.do_remote:
         # We have a debian maintenance account, use the available credentials
-        mysql_login: str = u"--defaults-file=/etc/mysql/debian.cnf"
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            mysql_login,
-            u"ping",
-            u"2>&1"
-        )
-        login_status: str = util.get(login_command)
-
-        if re.match(r"mysqld is alive", login_status):
-            option.format_print(u"Logged in using credentials from debian maintenance account.", style=u"good")
+        try:
+            sess.execute("SELECT 1;")
             return True
-        else:
-            option.format_print(u"Attempted to use login credentials from DirectAdmin, but they failed", style=u"bad")
+        except Exception:
+            option.format_print(u"Logged in using credentials from debian maintenance account.", style=u"good")
             raise ConnectionRefusedError
 
     elif option.defaults_file and util.is_readable(option.defaults_file):
         # Defaults File
         option.format_print(f"defaults file detected: {option.defaults_file}", style=u"debug")
-
-        mysql_defaults_command: typ.Sequence[str] = (
-            mysql_command,
-            u"--print-defaults"
-        )
-        util.run(mysql_defaults_command)
-
-        mysql_login: str = f"--defaults-file={option.defaults_file}"
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            mysql_login,
-            u"ping",
-            u"2>&1"
-        )
-        login_status: str = util.get(login_command)
-
-        if re.match(r"mysqld is alive", login_status):
+        try:
+            sess.execute("SELECT 1;")
             option.format_print(u"Logged in using credentials from defaults file account.", style=u"good")
             return True
+        except Exception:
+            raise ConnectionRefusedError
     else:
         # It's not Plesk or debian, we should try a login
-        login_command: typ.Sequence[str] = (
-            mysqladmin_command,
-            option.remote_connect,
-            u"ping",
-            u"2>&1"
-        )
-        option.format_print(u" ".join(login_command), style=u"debug")
 
-        login_status: str = util.get(login_command)
-
-        if re.match(r"mysqld is alive", login_status):
+        try:
+            sess.execute("SELECT 1;")
             # Login went just fine
             # mysql_login: str = f" {option.remote_connect} u"
 
@@ -611,7 +260,7 @@ def mysql_setup(option: tuner.Option) -> bool:
 
             return True
 
-        else:
+        except Exception:
             if option.no_ask:
                 option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
                 raise ConnectionRefusedError
@@ -628,22 +277,8 @@ def mysql_setup(option: tuner.Option) -> bool:
             else:
                 password: str = getpass.getpass(u"Please enter your MySQL administrative password: u").strip()
 
-            mysql_login: str = f"-u {name}"
-            if password:
-                mysql_login = u" ".join((mysql_login, f"-p'{password}'"))
-
-            mysql_login: str = u" ".join((mysql_login, option.remote_connect))
-
-            login_command: typ.Sequence[str] = (
-                mysqladmin_command,
-                u"ping",
-                mysql_login,
-                u"2>&1"
-            )
-
-            login_status: str = util.get(login_command)
-
-            if re.match(r"mysqld is alive", login_status):
+            try:
+                sess.execute("SELECT 1;")
                 if not password:
                     # Did this go well because of a .my.cnf file or is there no password set?
                     user_path: str = os.environ["HOME"].strip()
@@ -654,7 +289,7 @@ def mysql_setup(option: tuner.Option) -> bool:
                         )
 
                 return True
-            else:
+            except Exception:
                 option.format_print(u"Attempted to use login credentials but they were invalid", style=u"bad")
                 raise ConnectionRefusedError
 
@@ -824,12 +459,18 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
             space_perc: str = matched.group(1)
             mount_point: str = matched.group(2)
             if int(matched.group(1)) > 85:
-                option.format_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", style=u"bad")
+                option.format_print(
+                    f"Mount point {mount_point} is using {space_perc} % of max allowed inodes",
+                    style=u"bad"
+                )
                 recommendations.append(
                     f"Add some space to {mount_point} mount point."
                 )
             else:
-                option.format_print(f"Mount point {mount_point} is using {space_perc} % of max allowed inodes", style=u"info")
+                option.format_print(
+                    f"Mount point {mount_point} is using {space_perc} % of max allowed inodes",
+                    style=u"info"
+                )
 
             # TODO result object assigning
 
@@ -862,8 +503,8 @@ def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = 
     option.format_print(f"CMD: {cmd}", style=u"debug")
 
     result: str = tuple(
-            info.strip()
-            for info in util.get(command)
+        info.strip()
+        for info in util.get(command)
     )
     for info in result:
         option.format_print(f"{delimiter}{info}", style=u"info")
@@ -921,7 +562,10 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     tcp_slot_entries: str = util.get(slot_table_command)
 
     if os.path.isfile(u"/proc/sys/sunrpc") and (not tcp_slot_entries or int(tcp_slot_entries) < 100):
-        option.format_print("Initial TCP slot entries is < 1M, please consider having a value greater than 100", style=u"bad")
+        option.format_print(
+            u"Initial TCP slot entries is < 1M, please consider having a value greater than 100",
+            style=u"bad"
+        )
         recommendations.append(u"Setup Initial TCP slot entries > 100")
         adjusted_vars.append(
             u"sunrpc.tcp_slot_table_entries > 100 (echo 128 > /proc/sys/sunrpc/tcp_slot_table_entries)"
@@ -934,9 +578,9 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
         u"-n",
         u"fs.aio-max-nr"
     )
-    aio_max: str = util.get(aio_max_command)
+    aio_max: int = int(util.get(aio_max_command))
 
-    if aio_max < 1e6:
+    if aio_max < 1000000:
         option.format_print((
                 u"Max running total of the number of events is < 1M,"
                 u"please consider having a value greater than 1M"
@@ -1041,33 +685,15 @@ def system_info(option: tuner.Option) -> None:
     option.format_print(f"Name Servers\t\t\t\t: {name_servers}", style=u"info")
 
     option.format_print(u"Logged in Users\t\t\t\t:", style=u"info")
-    logged_user_command: typ.Sequence[str] = (
-        "who"
-    )
-    info_cmd(logged_user_command, option, delimiter=u"\t")
-    logged_users = util.get(logged_user_command)
+    logged_users: typ.Sequence[str] = [
+        user.name
+        for user in psu.users()
+    ]
 
-    ram_command: typ.Sequence[str] = (
-        u"free",
-        u"-m",
-        u"|",
-        u"grep",
-        u"-v",
-        u"+"
-    )
-    ram: str = util.get(ram_command)
-    option.format_print(f"Ram Usages in Mb\t\t: {ram}", style=u"info")
+    ram: str = util.bytes_to_string(psu.virtual_memory().free)
+    option.format_print(f"Ram Usages in MB\t\t: {ram}", style=u"info")
 
-    load_command: typ.Sequence[str] = (
-        u"top",
-        u"-n",
-        u"1",
-        u"-b"
-        u"|",
-        u"grep",
-        u"'load average:'"
-    )
-    load_average: str = util.get(load_command)
+    load_average: str = os.getloadavg()
 
 
 def system_recommendations(
@@ -1181,9 +807,7 @@ def security_recommendations(
         password_column = u"AUTHENTICATION_STRING"
 
     # Looking for Anonymous users
-    mysql_user_query_file: str = osp.join(info.query_dir, u"user-query.sql")
-    with open(mysql_user_query_file, mode=u"r", encoding=u"utf-8") as muqf:
-        mysql_user_query: sqla.Text = sqla.text(muqf.read())
+    mysql_user_query: sqla.Text = info.query_from_file("user-query.sql")
     result = sess.execute(mysql_user_query)
     User = clct.namedtuple(u"User", result.keys())
     users: typ.Sequence[str] = [
@@ -1209,12 +833,9 @@ def security_recommendations(
 
     # Looking for Empty Password
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 5):
-        mysql_password_query_file: str = osp.join(info.query_dir, f"password-query-5_5.sql")
+        mysql_password_query: sqla.Text = info.query_from_file(u"password-query-5_5.sql")
     else:
-        mysql_password_query_file: str = osp.join(info.query_dir, u"password-query-5_4.sql")
-
-    with open(mysql_password_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-        mysql_password_query: sqla.Text = sqla.text(mpqf.read())
+        mysql_password_query: sqla.Text = info.query_from_file(u"password-query-5_4.sql")
 
     result = sess.execute(mysql_password_query, password_column=password_column)
     Password = clct.namedtuple(u"Password", result.keys())
@@ -1234,9 +855,7 @@ def security_recommendations(
         option.format_print(u"All database users have passwords assigned", style=u"good")
 
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
-        mysql_plugin_query_file: str = osp.join(info.query_dir, u"plugin-query.sql")
-        with open(mysql_plugin_query_file, mode=u"r", encoding=u"utf-8") as mpqf:
-            mysql_plugin_query: sqla.Text = sqla.text(mpqf.read())
+        mysql_plugin_query: sqla.Text = info.query_from_file(u"plugin-query.sql")
 
         result = sess.execute(mysql_plugin_query)
         Plugin = clct.namedtuple(u"Plugin", result.keys())
@@ -1253,9 +872,7 @@ def security_recommendations(
             return recommendations, adjusted_vars
 
     # Looking for User with user/ uppercase /capitalise user as password
-    mysql_capitalize_query_file: str = osp.join(info.query_dir, f"capitalize-query.sql")
-    with open(mysql_capitalize_query_file, mode=u"r", encoding=u"utf-8") as mcqf:
-        mysql_capitalize_query: sqla.Text = sqla.text(mcqf.read())
+    mysql_capitalize_query: sqla.Text = info.query_from_file(u"capitalize-query.sql")
     result = sess.execute(mysql_capitalize_query, password_column=password_column)
     Capitalize = clct.namedtuple(u"Capitalize", result.keys())
     capitalize_users: typ.Sequence[Capitalize] = [
@@ -1270,9 +887,7 @@ def security_recommendations(
             u"Set up a Password for user with the following SQL statement: "
             u"( SET PASSWORD FOR 'user'@'SpecificDNSorIP' = PASSWORD('secure_password'); )"
         ))
-    mysql_host_query_file: str = osp.join(info.query_dir, u"host-query.sql")
-    with open(mysql_host_query_file, mode=u"r", encoding=u"utf-8") as mhqf:
-        mysql_host_query: sqla.Text = sqla.text(mhqf.read())
+    mysql_host_query: sqla.Text = info.query_from_file(u"host-query.sql")
     result = sess.execute(mysql_host_query)
     Host = clct.namedtuple(u"Host", result.keys())
     host_users: typ.Sequence[str] = [
@@ -1301,9 +916,7 @@ def security_recommendations(
             interpass_amount += 1
 
             # Looking for User with user/ uppercase /capitalise user as password
-            mysql_capital_password_query_file: str = osp.join(info.query_dir, u"capital-password-query.sql")
-            with open(mysql_capital_password_query_file, mode=u"r", encoding=u"utf-8") as mcpqf:
-                mysql_capital_password_query: sqla.Text = sqla.text(mcpqf.read())
+            mysql_capital_password_query: sqla.Text = info.query_from_file(u"capital-password-query.sql")
             result = sess.execute(mysql_capital_password_query, password=password, password_column=password_column)
             CapitalPassword = clct.namedtuple(u"CapitalPassword", result.keys())
             capital_password_users: typ.Sequence[str] = [
@@ -1402,10 +1015,7 @@ def check_storage_engines(
         if (info.ver_major, info.ver_minor) == (5, 5):
             engine_version = u"5_5"
 
-        engine_support_query_file: str = osp.join(info.query_dir, f"engine-support-query={engine_version}.sql")
-
-        with open(engine_support_query_file, mode=u"r", encoding=u"utf-8") as esqf:
-            engine_support_query: str = esqf.read()
+        engine_support_query: sqla.Text = info.query_from_file(f"engine-support-query={engine_version}.sql")
         result = sess.execute(engine_support_query)
         EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
         engine_supports: typ.Sequence[str, str] = [
@@ -1456,7 +1066,7 @@ def check_storage_engines(
             else option.color_wrap(u"-NDBCLuster", color=u"red")
         )
 
-    database_query: str = u"SHOW DATABASES;"
+    database_query: sqla.Text = info.query_from_file(u"all-databases.sql")
     result = sess.execute(database_query)
     Database = clct.namedtuple(u"Database", result.keys())
     databases: typ.Sequence[str] = [
@@ -1469,9 +1079,7 @@ def check_storage_engines(
 
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         # MySQL 5 servers can have table sizes calculated quickly from information schema
-        engine_query_file: str = osp.join(info.query_dir, u"engine-query.sql")
-        with open(engine_query_file, mode=u"r", encoding=u"utf-8") as eqf:
-            engine_query: str = eqf.read()
+        engine_query: sqla.Text = info.query_from_file(u"engine-query.sql")
         result = sess.execute(engine_query)
         Engine = clct.namedtuple(u"Engine", result.keys())
         engine_sizes: typ.Sequence[str, int, int, int, int] = [
@@ -1647,37 +1255,33 @@ def calculations(
         calc.total_myisam_indexes = size
         calc.total_ariadb_indexes = 0
     elif info.ver_major >= 5:
-        myisam_index_query_file: str = osp.join(info.query_dir, u"myisam-index-query.sql")
-        with open(myisam_index_query_file, mode=u"r", encoding=u"utf-8") as miqf:
-            myisam_query: sqla.Text = sqla.text(miqf.read())
-            result = sess.execute(myisam_query)
-            Index = clct.namedtuple(u"Index", result.keys())
-            index_sizes: typ.Sequence[int] = [
-                index.INDEX_LENGTH
-                for index in [
-                    Index(*index)
-                    for index in result.fetchall()
-                ]
+        myisam_index_query: sqla.Text = info.query_from_file(u"myisam-index-query.sql")
+        result = sess.execute(myisam_index_query)
+        Index = clct.namedtuple(u"Index", result.keys())
+        index_sizes: typ.Sequence[int] = [
+            index.INDEX_LENGTH
+            for index in [
+                Index(*index)
+                for index in result.fetchall()
             ]
+        ]
 
-            for index_size in index_sizes:
-                calc.total_myisam_indexes += index_size
+        for index_size in index_sizes:
+            calc.total_myisam_indexes += index_size
 
-        ariadb_index_query_file: str = osp.join(info.query_dir, u"aria-index-query.sql")
-        with open(ariadb_index_query_file, mode=u"r", encoding=u"utf-8") as aqf:
-            ariadb_query: sqla.Text = sqla.text(aqf.read())
-            result = sess.execute(ariadb_query)
-            Index = clct.namedtuple(u"Index", result.keys())
-            index_sizes: typ.Sequence[int] = [
-                index.INDEX_LENGTH
-                for index in [
-                    Index(*index)
-                    for index in result.fetchall()
-                ]
+        ariadb_index_query: sqla.Text = info.query_from_file(u"aria-index-query.sql")
+        result = sess.execute(ariadb_index_query)
+        Index = clct.namedtuple(u"Index", result.keys())
+        index_sizes: typ.Sequence[int] = [
+            index.INDEX_LENGTH
+            for index in [
+                Index(*index)
+                for index in result.fetchall()
             ]
+        ]
 
-            for index_size in index_sizes:
-                calc.total_ariadb_indexes += index_size
+        for index_size in index_sizes:
+            calc.total_ariadb_indexes += index_size
 
     if not calc.total_myisam_indexes:
         calc.total_myisam_indexes = 0
@@ -1878,7 +1482,7 @@ def mysql_myisam(
     # Key Buffer usage
     key_buffer_used_msg: str = (
         f"Key Buffer used: {calc.pct_key_buffer_used}% "
-        f"({util.bytes_to_string(info.key_buffer_size * calc.pct_key_buffer_used / 100)} "
+        f"({util.bytes_to_string(int(info.key_buffer_size * calc.pct_key_buffer_used / 100))} "
         f"used / {util.bytes_to_string(info.key_buffer_size)} cache)"
     )
 
@@ -2003,18 +1607,16 @@ def performance_memory(info: tuner.Info, sess: orm.session.Session) -> int:
     if not info.performance_schema:
         return 0
 
-    pf_memory_query_file: str = osp.join(info.query_dir, u"performance_schema-memory-query.sql")
-    with open(pf_memory_query_file, mode=u"r", encoding=u"utf-8") as pfmqf:
-        pf_memory_query: sqla.Text = sqla.text(pfmqf.read())
-        result = sess.execute(pf_memory_query)
-        Memory = clct.namedtuple(u"Memory", result.keys())
-        memory_sizes: typ.Sequence[int] = [
-            memory.DATA_LENGTH
-            for memory in [
-                Memory(*memory)
-                for memory in result.fetchall()
-            ]
+    pf_memory_query: sqla.Text = info.query_from_file(u"performance_schema-memory-query.sql")
+    result = sess.execute(pf_memory_query)
+    Memory = clct.namedtuple(u"Memory", result.keys())
+    memory_sizes: typ.Sequence[int] = [
+        memory.DATA_LENGTH
+        for memory in [
+            Memory(*memory)
+            for memory in result.fetchall()
         ]
+    ]
     return sum(memory_sizes)
 
 
@@ -2279,7 +1881,10 @@ def mariadb_galera(
     # option.format_print(u"Galera status:", style=u"debug")
     # TODO set result object
 
-    option.format_print(f"GCache is using {util.bytes_to_string(wsrep_option(option, info, key=u'gcache.mem_size'))}", style=u"info")
+    option.format_print(
+        f"GCache is using {util.bytes_to_string(wsrep_option(option, info, key=u'gcache.mem_size'))}",
+        style=u"info"
+    )
 
     wsrep_slave_threads: int = wsrep_option(option, info, key=u"wsrep_slave_threads")
     cpu_count: int = psu.cpu_count()
@@ -2302,10 +1907,7 @@ def mariadb_galera(
     else:
         option.format_print(u"Flow control fraction seems to be OK", style=u"good")
 
-    non_primary_key_table_query_file: str = osp.join(info.query_dir, u"non_primary-key-table-query.sql")
-    with open(non_primary_key_table_query_file, mode=u"r", encoding=u"utf-8") as npktqf:
-        non_primary_key_table_query: sqla.Text = sqla.text(npktqf.read())
-
+    non_primary_key_table_query: sqla.Text = info.query_from_file(u"non_primary-key-table-query.sql")
     result = sess.execute(non_primary_key_table_query)
     NonPrimaryKeyTable = clct.namedtuple(u"NonPrimaryKeyTable", result.keys())
     non_primary_key_tables: typ.Sequence[str] = [
@@ -2321,9 +1923,7 @@ def mariadb_galera(
     else:
         option.format_print(u"All tables have a primary key", style=u"good")
 
-    non_innodb_table_query_file: str = osp.join(info.query_dir, u"non_innodb-table-query.sql")
-    with open(non_innodb_table_query_file, mode=u"r", encoding=u"utf-8") as nitqf:
-        non_innodb_table_query: sqla.Text = sqla.text(nitqf.read())
+    non_innodb_table_query: sqla.Text = info.query_from_file(u"non_innodb-table-query.sql")
 
     result = sess.execute(non_innodb_table_query)
     NonInnoDBTable = clct.namedtuple(u"NonInnoDBTable", result.keys())
@@ -2446,7 +2046,10 @@ def mariadb_galera(
     if stat.wsrep_local_cert_failures == 0:
         option.format_print(u"There are no certification failures detected", style=u"good")
     else:
-        option.format_print(f"There are {stat.wsrep_local_cert_failures} certification failure(s) detected", style=u"bad")
+        option.format_print(
+            f"There are {stat.wsrep_local_cert_failures} certification failure(s) detected",
+            style=u"bad"
+        )
 
     # TODO weird debug print
 
@@ -2479,7 +2082,10 @@ def mysql_innodb(
     if not info.have_innodb:
         option.format_print(u"InnoDB is disabled.", style=u"info")
         if (info.ver_major, info.ver_minor) >= (5, 5):
-            option.format_print(u"InnoDB Storage Engine is disabled. InnoDB is the default storage engine", style=u"bad")
+            option.format_print(
+                u"InnoDB Storage Engine is disabled. InnoDB is the default storage engine",
+                style=u"bad"
+            )
 
         return recommendations, adjusted_vars
 
@@ -2488,7 +2094,10 @@ def mysql_innodb(
     if option.buffers:
         option.format_print(u"InnoDB Buffers", style=u"info")
 
-        option.format_print(f" +-- InnoDB Buffer Pool: {util.bytes_to_string(info.innodb_buffer_pool_size)}", style=u"info")
+        option.format_print(
+            f" +-- InnoDB Buffer Pool: {util.bytes_to_string(info.innodb_buffer_pool_size)}",
+            style=u"info"
+        )
 
         option.format_print((
             u" +-- InnoDB Buffer Pool Instances:"
@@ -2585,7 +2194,7 @@ def mysql_innodb(
         ), style=u"bad")
         adjusted_vars.append((
             u"innodb_log_file_size * innodb_log_files_in_group should be equal to 25% of buffer pool size "
-            f"(={util.bytes_to_string(info.innodb_buffer_pool_size * info.innodb_log_files_in_group / 4)}) "
+            f"(={util.bytes_to_string(int(info.innodb_buffer_pool_size * info.innodb_log_files_in_group / 4))}) "
             u"if possible"
         ))
 
@@ -2711,7 +2320,7 @@ def mysql_databases(
         option.format_print(u"Skip Database metrics from information schema missing in this version", style=u"info")
         return recommendations, adjusted_vars
 
-    database_query: str = u"SHOW DATABASES;"
+    database_query: sqla.Text = info.query_from_file(u"all-databases.sql")
     result = sess.execute(database_query)
     Database = clct.namedtuple(u"Database", result.keys())
     databases: typ.Sequence[str] = [
@@ -2721,9 +2330,7 @@ def mysql_databases(
 
     option.format_print(f"There are {len(databases)} Databases", style=u"info")
 
-    databases_info_query_file: str = osp.join(info.query_dir, u"databases-info-query.sql")
-    with open(databases_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
-        databases_info_query: sqla.Text = sqla.text(diqf.read())
+    databases_info_query: sqla.Text = info.query_from_file(u"databases-info-query.sql")
     result = sess.execute(databases_info_query)
     DatabasesInfo = clct.namedtuple(u"DatabasesInfo", result.keys())
     databases_info: DatabasesInfo = [
@@ -2742,9 +2349,7 @@ def mysql_databases(
         f"({util.percentage(databases_info.INDEX_SIZE, databases_info.TOTAL_SIZE)}%)"
     ), style=u"info")
 
-    table_collation_query_file: str = osp.join(info.query_dir, u"all-table-collations-query.sql")
-    with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as atcqf:
-        table_collation_query: sqla.Text = sqla.text(atcqf.read())
+    table_collation_query: sqla.Text = info.query_from_file(u"all-table-collations-query.sql")
     result = sess.execute(table_collation_query)
     TableCollation = clct.namedtuple(u"TableCollation", result.keys())
     table_collations: TableCollation = [
@@ -2760,9 +2365,7 @@ def mysql_databases(
         f"({all_table_collations})"
     ), style=u"info")
 
-    table_engine_query_file: str = osp.join(info.query_dir, u"all-table-engines-query.sql")
-    with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as ateqf:
-        table_engine_query: sqla.Text = sqla.text(ateqf.read())
+    table_engine_query: sqla.Text = info.query_from_file(u"all-table-engines-query.sql")
     result = sess.execute(table_engine_query)
     TableEngine = clct.namedtuple(u"TableEngine", result.keys())
     table_engines: TableEngine = [
@@ -2783,9 +2386,7 @@ def mysql_databases(
     if not (option.silent and option.json):
         print(u"\n")
 
-    database_info_query_file: str = osp.join(info.query_dir, u"database-info-query.sql")
-    with open(database_info_query_file, mode=u"r", encoding=u"utf-8") as diqf:
-        database_info_query: sqla.Text = sqla.text(diqf.read())
+    database_info_query: sqla.Text = info.query_from_file(u"database-info-query.sql")
     for database in databases:
         result = sess.execute(database_info_query, TABLE_SCHEMA=database)
         DatabaseInfo = clct.namedtuple(u"DatabaseInfo", result.keys())
@@ -2805,9 +2406,7 @@ def mysql_databases(
             f"({util.percentage(database_info.INDEX_SIZE, database_info.TOTAL_SIZE)}%)"
         ), style=u"info")
 
-        table_collation_query_file: str = osp.join(info.query_dir, u"table-collations-query.sql")
-        with open(table_collation_query_file, mode=u"r", encoding=u"utf-8") as tcqf:
-            table_collation_query: sqla.Text = sqla.text(tcqf.read())
+        table_collation_query: sqla.Text = info.query_from_file(u"table-collations-query.sql")
         result = sess.execute(table_collation_query, TABLE_SCHEMA=database)
         TableCollation = clct.namedtuple(u"TableCollation", result.keys())
         table_collations: TableCollation = [
@@ -2823,9 +2422,7 @@ def mysql_databases(
             f"({all_table_collations})"
         ), style=u"info")
 
-        table_engine_query_file: str = osp.join(info.query_dir, u"table-engines-query.sql")
-        with open(table_engine_query_file, mode=u"r", encoding=u"utf-8") as teqf:
-            table_engine_query: sqla.Text = sqla.text(teqf.read())
+        table_engine_query: sqla.Text = info.query_from_file(u"table-engines-query.sql")
         result = sess.execute(table_engine_query, TABLE_SCHEMA=database)
         TableEngine = clct.namedtuple(u"TableEngine", result.keys())
         table_engines: typ.Sequence[TableEngine] = [
@@ -2849,7 +2446,10 @@ def mysql_databases(
         # TODO set result object
 
         if database_info.COLLATION_COUNT > 1:
-            option.format_print(f"{database_info.COLLATION_COUNT} different collations for database {database}", style=u"bad")
+            option.format_print(
+                f"{database_info.COLLATION_COUNT} different collations for database {database}",
+                style=u"bad"
+            )
             recommendations.append(
                 f"Check all table collations are identical for all tables in {database} database"
             )
@@ -2864,9 +2464,7 @@ def mysql_databases(
         else:
             option.format_print(f"{database_info.ENGINE_COUNT} engine for database {database}", style=u"good")
 
-        character_set_query_file: str = osp.join(info.query_dir, u"character-set-query.sql")
-        with open(character_set_query_file, mode=u"r", encoding=u"utf-8") as csqf:
-            character_set_query: sqla.Text = sqla.text(csqf.read())
+        character_set_query: sqla.Text = info.query_from_file(u"character-set-query.sql")
         result = sess.execute(character_set_query, TABLE_SCHEMA=database)
         CharacterSet = clct.namedtuple(u"CharacterSet", result.keys())
         character_sets: typ.Sequence[CharacterSet] = [
@@ -2895,9 +2493,7 @@ def mysql_databases(
                 style=u"good"
             )
 
-        collation_query_file: str = osp.join(info.query_dir, u"collation-query.sql")
-        with open(collation_query_file, mode=u"r", encoding=u"utf-8") as cqf:
-            collation_query: sqla.Text = sqla.text(cqf.read())
+        collation_query: sqla.Text = info.query_from_file(u"collation-query.sql")
         result = sess.execute(collation_query, TABLE_SCHEMA=database)
         Collation = clct.namedtuple(u"Collation", result.keys())
         collations: typ.Sequence[Collation] = [
@@ -2949,13 +2545,11 @@ def mysql_indexes(
         return recommendations, adjusted_vars
 
     option.format_print(u"Indexes Metrics", style=u"subheader")
-    if (info.ver_major, info.ver_minor) < (5, 5):
+    if (info.ver_major, info.ver_minor, info.ver_minor) < (5, 5):
         option.format_print(u"Skip Index metrics from information schema missing in this version", style=u"info")
         return recommendations, adjusted_vars
 
-    worst_indexes_query_file: str = osp.join(info.query_dir, u"worst-indexes-query.sql")
-    with open(worst_indexes_query_file, mode=u"r", encoding=u"utf-8") as wiqf:
-        worst_indexes_query: sqla.Text = sqla.text(wiqf.read())
+    worst_indexes_query: sqla.Text = info.query_from_file(u"worst-indexes-query.sql")
     result = sess.execute(worst_indexes_query)
     WorstIndex = clct.namedtuple(u"WorstIndex", result.keys())
     worst_indexes: typ.Sequence[WorstIndex] = [
@@ -2983,9 +2577,7 @@ def mysql_indexes(
     if not info.performance_schema:
         return recommendations, adjusted_vars
 
-    unused_indexes_query_file: str = osp.join(info.query_dir, u"unused-indexes-query.sql")
-    with open(unused_indexes_query_file, mode=u"r", encoding=u"utf-8") as uiqf:
-        unused_indexes_query: sqla.Text = sqla.text(uiqf.read())
+    unused_indexes_query: sqla.Text = info.query_from_file(u"unused-indexes-query.sql")
     result = sess.execute(unused_indexes_query)
     UnusedIndex = clct.namedtuple(u"UnusedIndex", result.keys())
     unused_indexes: typ.Sequence[UnusedIndex] = [
