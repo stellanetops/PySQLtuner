@@ -978,17 +978,19 @@ def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
         option.format_print(f"Currently running supported MySQL version {full_version}", style=u"good")
 
 
-def check_architecture(option: tuner.Option, physical_memory: int) -> None:
+def check_architecture(option: tuner.Option) -> typ.Dict:
     """Checks architecture of system
 
     :param tuner.Option option: options object
-    :param int physical_memory: Physical memory in bytes
-    :return:
+    :return typ.Dict: results
     """
     # Checks for 32-bit boxes with more than 2GB of RAM
     if option.do_remote:
-        return
+        return {}
+
     arch_bit: str = platform.architecture()[0]
+    physical_memory: int = psu.virtual_memory().available
+
     if "64" in arch_bit:
         option.format_print("Operating on 64-bit architecture", style=u"good")
     else:
@@ -997,29 +999,35 @@ def check_architecture(option: tuner.Option, physical_memory: int) -> None:
         else:
             option.format_print(u"Operating on a 32-bit architecture with less than 2GB RAM", style=u"good")
 
-        # TODO set architecture to result object
+    return {
+        u"OS": {
+            u"Architecture": arch_bit
+        }
+    }
 
 
 def check_storage_engines(
     option: tuner.Option,
     info: tuner.Info,
     sess: orm.session.Session
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
     """Storage Engine information
 
     :param tuner.Option option:
     :param tuner.Info info:
     :param orm.session.Session sess:
 
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.Dict = {}
 
     option.format_print(u"Storage Engine Statistics", style=u"subheader")
     if option.skip_size:
         option.format_print(u"Skipped due to --skip-size option", style=u"info")
-        return recommendations, adjusted_vars
+        return recommendations, adjusted_vars, results
 
     engines: str = ""
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
@@ -1135,7 +1143,13 @@ def check_storage_engines(
         # TODO defragment tables
         # TODO etc
 
-    return recommendations, adjusted_vars
+    return (
+        recommendations,
+        adjusted_vars,
+        {
+
+        }
+    )
 
 
 def calculations(
