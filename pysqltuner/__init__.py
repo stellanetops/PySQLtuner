@@ -1022,14 +1022,14 @@ def check_storage_engines(
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
-    results: typ.Dict = {}
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     option.format_print(u"Storage Engine Statistics", style=u"subheader")
     if option.skip_size:
         option.format_print(u"Skipped due to --skip-size option", style=u"info")
         return recommendations, adjusted_vars, results
 
-    engines: str = ""
+    engines: typ.List[str] = []
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         engine_version: str = u"5_1"
         if (info.ver_major, info.ver_minor) == (5, 5):
@@ -1038,7 +1038,7 @@ def check_storage_engines(
         engine_support_query: sqla.Text = info.query_from_file(f"engine-support-query-{engine_version}.sql")
         result = sess.execute(engine_support_query)
         EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
-        engine_supports: typ.Sequence[str, str] = [
+        engine_supports: typ.Sequence[typ.Tuple[str, str]] = [
             (engine_support.ENGINE, engine_support.SUPPORT)
             for engine_support in [
                 EngineSupport(*engine_support)
@@ -1047,40 +1047,39 @@ def check_storage_engines(
         ]
         for engine, support in engine_supports:
             if engine.strip() and support.strip():
-                # TODO set result variable
-                if support in (u"YES", u"ENABLES"):
+                results[u"Engine"][engine][u"Enabled"] = support
+                if support in (u"YES", u"ENABLED"):
                     engine_part: str = option.color_wrap(f"+{engine} ", color=u"green")
                 else:
                     engine_part: str = option.color_wrap(f"+{engine} ", color=u"red")
-                engines += engine_part
+                engines.append(engine_part)
     else:
-        # TODO need variable object to pick which parts to print
-        engines += (
+        engines.append(
             option.color_wrap(u"+Archive", color=u"green")
             if info.have_archive
             else option.color_wrap(u"-Archive", color=u"red")
         )
-        engines += (
+        engines.append(
             option.color_wrap(u"+BDB", color=u"green")
             if info.have_bdb
             else option.color_wrap(u"-BDB", color=u"red")
         )
-        engines += (
+        engines.append(
             option.color_wrap(u"+Federated", color=u"green")
             if info.have_federated_engine
             else option.color_wrap(u"-Federated", color=u"red")
         )
-        engines += (
+        engines.append(
             option.color_wrap(u"+InnoDB", color=u"green")
             if info.have_innodb
             else option.color_wrap(u"-InnoDB", color=u"red")
         )
-        engines += (
+        engines.append(
             option.color_wrap(u"+MyISAM", color=u"green")
             if info.have_myisam
             else option.color_wrap(u"-MyISAM", color=u"red")
         )
-        engines += (
+        engines.append(
             option.color_wrap(u"+NDBCluster", color=u"green")
             if info.have_ndb_cluster
             else option.color_wrap(u"-NDBCLuster", color=u"red")
@@ -1093,7 +1092,7 @@ def check_storage_engines(
         Database(*database).Database
         for database in result.fetchall()
     ]
-    # TODO set result variable
+    results[u"Databases"][u"List"]: typ.Sequence[str] = databases
 
     option.format_print(f"Status {engines}", style=u"info")
 
@@ -1102,7 +1101,7 @@ def check_storage_engines(
         engine_query: sqla.Text = info.query_from_file(u"engine-query.sql")
         result = sess.execute(engine_query)
         Engine = clct.namedtuple(u"Engine", result.keys())
-        engine_sizes: typ.Sequence[str, int, int, int, int] = [
+        engine_sizes: typ.Sequence[typ.Tuple[str, int, int, int, int]] = [
             (engine.ENGINE, engine.SIZE, engine.COUNT, engine.DATA_SIZE, engine.INDEX_SIZE)
             for engine in [
                 Engine(*engine)
@@ -1114,42 +1113,36 @@ def check_storage_engines(
             option.format_print(f"Engine Found: {engine}", style=u"debug")
             if not engine:
                 continue
-            # TODO set stats and count and results variables
-    else:
-        tables: typ.Sequence[str] = []
-        # MySQL < 5 servers take a lot of work to get table sizes
-        # Now we build a database list, and loop through it to get storage engine stats for tables
-        for database in databases:
-            if database.strip() in (
-                u"information_schema",
-                u"mysql",
-                u"performance_schema",
-                u"lost+found"
-            ):
-                continue
+            engine_stats[engine] = count
+            results[u"Engine"][engine] = {
+                u"# of Tables": count,
+                u"Total Size": size,
+                u"Data Size": data_size,
+                u"Index Size": index_size
+            }
+        # TODO STUFF
+        if info.innodb_file_per_table:
+            innodb_clause: str = u"AND `tbl`.`ENGINE` <> 'InnoDB'"
+        else:
+            innodb_clause: str = u""
 
-            indexes: typ.Tuple[int, int, int] = (1, 6, 9)
-
-            if __name__ == '__main__':
-                if (info.ver_major, info.ver_minor, info.ver_micro) < (4, 1):
-                    # MySQL 3.23/4.0 keeps Data_Length in the 5th (0-based) column
-                    indexes = (1, 5, 8)
-
-                # TODO append to tables list based on query
-            # Parse through the table list to generate storage engine counts/statistics
-            # TODO parse through tables to gather sizes
+        fragmented_tables_query: sqla.Text = info.query_from_file(u"fragmented-tables-query.sql")
+        result = sess.execute(fragmented_tables_query, innodb_clause=innodb_clause)
+        FragmentedTable = clct.namedtuple(u"FragmentedTable", result.keys())
+        frag_table_sizes: typ.Sequence[typ.Tuple[str, int]] = [
+            (frag_table.TABLE, frag_table.DATA_FREE)
+            for frag_table in [
+                FragmentedTable(*fragmented_table)
+                for fragmented_table in result.fetchall()
+            ]
+        ]
+        results[u"Tables"][u"Fragmented Tables"]: typ.Sequence[typ.Tuple[str, int]] = frag_table_sizes
 
         # TODO set variables and add recommendations
         # TODO defragment tables
         # TODO etc
 
-    return (
-        recommendations,
-        adjusted_vars,
-        {
-
-        }
-    )
+    return recommendations, adjusted_vars, results
 
 
 def calculations(
