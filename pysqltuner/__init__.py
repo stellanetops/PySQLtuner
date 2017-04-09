@@ -359,28 +359,12 @@ def opened_ports() -> typ.Sequence[str]:
 
     :return typ.Sequence[str]: array of all opened ports
     """
-    opened_ports_command: typ.Sequence[str] = (
-        u"netstat",
-        u"-ltn"
-    )
-    all_opened_ports: str = util.get(opened_ports_command)
-
-    port_filters: typ.Sequence[typ.Tuple[str, str]] = (
-        (r".*:(\d+)\s.*$", r"\1"),
-        (r"\D", u"")
-    )
+    all_opened_ports: typ.Sequence[typ.Any] = psu.net_connections()
 
     filtered_ports: typ.Sequence[str] = sorted(
-        re.sub(port_filter, port_replace, open_port)
-        for open_port in all_opened_ports
-        for port_filter, port_replace in port_filters
+        port.laddr[1]
+        for port in all_opened_ports
     )
-
-    filtered_ports = [
-        filtered_port
-        for filtered_port in filtered_ports
-        if not re.match(r"^$", filtered_port)
-    ]
 
     # TODO include opened ports in results object
 
@@ -1015,7 +999,7 @@ def check_storage_engines(
         if (info.ver_major, info.ver_minor) == (5, 5):
             engine_version = u"5_5"
 
-        engine_support_query: sqla.Text = info.query_from_file(f"engine-support-query={engine_version}.sql")
+        engine_support_query: sqla.Text = info.query_from_file(f"engine-support-query-{engine_version}.sql")
         result = sess.execute(engine_support_query)
         EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
         engine_supports: typ.Sequence[str, str] = [
