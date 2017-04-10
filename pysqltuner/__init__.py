@@ -1137,6 +1137,8 @@ def check_storage_engines(
             ]
         ]
         results[u"Tables"][u"Fragmented Tables"]: typ.Sequence[typ.Tuple[str, int]] = frag_table_sizes
+    else:
+        raise NotImplementedError
 
         # TODO set variables and add recommendations
         # TODO defragment tables
@@ -1868,37 +1870,55 @@ def mariadb_galera(
     option: tuner.Option,
     info: tuner.Info,
     stat: tuner.Stat
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
     """Recommendations for Galera
 
     :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
-    # TODO fill galera mariadb in -- needs result
     option.format_print(u"Galera Metrics", style=u"subheader")
 
     # Galera Cluster
     if not info.have_galera:
         option.format_print(u"Galera is disabled.", style=u"info")
+        return recommendations, adjusted_vars, results
 
     option.format_print(u"Galera is enabled.", style=u"info")
-    # option.format_print(u"Galera variables:", style=u"debug")
-    # TODO set result object
+
+    option.format_print(u"Galera variables:", style=u"debug")
+    galera_infos: typ.Sequence[typ.Tuple[str, typ.Any]] = [
+        (galera_key, galera_value)
+        for galera_key, galera_value in util.class_variables(info)
+        if u"wsrep" in galera_key
+        and galera_key != u"wsrep_provider_options"
+    ]
+    for galera_info, galera_value in galera_infos:
+        option.format_print(f"\t{galera_info} = {galera_value}", style=u"debug")
+        results[u"Galera"][u"Info"][galera_info]: typ.Any = galera_value
 
     option.format_print(u"Galera wsrep provider options:", style=u"debug")
     galera_options: typ.Sequence[str] = wsrep_options(option, info)
-    # TODO set result object
+    results[u"Galera"][u"wsrep options"]: typ.Sequence[str] = galera_options
     for galera_option in galera_options:
         option.format_print(f"\t{galera_option.strip()}", style=u"debug")
 
-    # option.format_print(u"Galera status:", style=u"debug")
-    # TODO set result object
+    option.format_print(u"Galera status:", style=u"debug")
+    galera_stats: typ.Sequence[typ.Tuple[str, typ.Any]] = [
+        (galera_key, galera_value)
+        for galera_key, galera_value in util.class_variables(stat)
+        if u"wsrep" in galera_key
+    ]
+    for galera_stat, galera_value in galera_stats:
+        option.format_print(f"\t{galera_stat} = {galera_value}", style=u"debug")
+        results[u"Galera"][u"Status"][galera_stat]: typ.Any = galera_value
 
     option.format_print(
         f"GCache is using {util.bytes_to_string(wsrep_option(option, info, key=u'gcache.mem_size'))}",
@@ -1920,7 +1940,7 @@ def mariadb_galera(
     else:
         option.format_print(u"gcs.limit is equal to 5 * wsrep_slave_threads", style=u"good")
 
-    wsrep_flow_control_paused: int = wsrep_option(option, info, key=u"wsrep_flow_control_paused")
+    wsrep_flow_control_paused: float = wsrep_option(option, info, key=u"wsrep_flow_control_paused")
     if wsrep_flow_control_paused > 0.02:
         option.format_print(u"Flow control fraction > 0.02", style=u"bad")
     else:
@@ -1934,29 +1954,28 @@ def mariadb_galera(
         for non_primary_key_table in result.fetchall()
     ]
 
+    results[u"Tables without a Primary Key"]: typ.Sequence[str] = []
     if len(non_primary_key_tables) > 0:
         option.format_print(u"Following table(s) don't have primary keys:", style=u"bad")
         for non_primary_key_table in non_primary_key_tables:
             option.format_print(f"\t{non_primary_key_table}", style=u"bad")
-            # TODO assign to result object
+            results[u"Tables without a Primary Key"].append(non_primary_key_table)
     else:
         option.format_print(u"All tables have a primary key", style=u"good")
 
     non_innodb_table_query: sqla.Text = info.query_from_file(u"non_innodb-table-query.sql")
-
     result = sess.execute(non_innodb_table_query)
     NonInnoDBTable = clct.namedtuple(u"NonInnoDBTable", result.keys())
     non_innodb_tables: typ.Sequence[str] = [
         NonInnoDBTable(*non_innodb_table).TABLE
         for non_innodb_table in result.fetchall()
-        ]
+    ]
 
     if len(non_innodb_tables) > 0:
         option.format_print(u"Following table(s) are not InnoDB table(s):", style=u"bad")
         for non_innodb_table in non_innodb_tables:
             option.format_print(f"\t{non_innodb_table}", style=u"bad")
-            recommendations.append(u"Ensure that all tables are InnoDB tables for Galera replciation")
-            # TODO assign to result object
+            recommendations.append(u"Ensure that all tables are InnoDB tables for Galera replication")
     else:
         option.format_print(u"All tables are InnoDB tables", style=u"good")
 
@@ -2070,11 +2089,18 @@ def mariadb_galera(
             style=u"bad"
         )
 
-    # TODO weird debug print
+    wsrep_galera_stats: typ.Sequence[typ.Tuple[str, typ.Any]] = [
+        (galera_key, galera_value)
+        for galera_key, galera_value in util.class_variables(stat)
+        if u"wsrep" in galera_key
+        or u"galera" in galera_key
+    ]
+    for wsrep_galera_stat, wsrep_galera_value in wsrep_galera_stats:
+        option.format_print(f"WsRep: {wsrep_galera_stat} = {wsrep_galera_value}", style=u"debug")
 
     option.format_print(",".join(wsrep_options(option, info)), style=u"debug")
 
-    return recommendations, adjusted_vars
+    return recommendations, adjusted_vars, results
 
 
 def mysql_innodb(
@@ -2082,18 +2108,20 @@ def mysql_innodb(
     info: tuner.Info,
     stat: tuner.Stat,
     calc: tuner.Calc
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
     """Recommendations for InnoDB
 
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
-    :param tuenr.Calc calc:
+    :param tuner.Calc calc:
 
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     option.format_print(u"InnoDB Metrics", style=u"subheader")
 
@@ -2311,28 +2339,35 @@ def mysql_innodb(
             f"innodb_log_buffer_size (>= {util.bytes_to_string(info.innodb_log_buffer_size)})"
         )
 
-    # TODO set result object
+    results[u"Calculations"]: typ.Dict = {
+        attr: getattr(calc, attr)
+        for attr in dir(calc)
+        if not callable(getattr(calc, attr))
+        and not attr.startswith(u"__")
+    }
 
-    return recommendations, adjusted_vars
+    return recommendations, adjusted_vars, results
 
 
 def mysql_databases(
     sess: orm.session.Session,
     option: tuner.Option,
     info: tuner.Info
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
     """Recommendations for database metrics
 
     :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     if not option.db_stat:
-        return recommendations, adjusted_vars
+        return recommendations, adjusted_vars, results
 
     option.format_print(u"Database Metrics", style=u"subheader")
     if (info.ver_major, info.ver_minor) >= (5, 5):
@@ -2400,7 +2435,14 @@ def mysql_databases(
         f"({all_table_engines})"
     ), style=u"info")
 
-    # TODO set result object
+    results[u"Databases"]: typ.Dict = {
+        u"Rows": databases_info.ROW_AMOUNT,
+        u"Data Size": databases_info.DATA_SIZE,
+        u"Data Percent": util.percentage(databases_info.DATA_SIZE, databases_info.TOTAL_SIZE),
+        u"Index Size": databases_info.INDEX_SIZE,
+        u"Index Percent": util.percentage(databases_info.INDEX_SIZE, databases_info.TOTAL_SIZE),
+        u"Total Size": databases_info.TOTAL_SIZE
+    }
 
     if not (option.silent and option.json):
         print(u"\n")
@@ -2462,7 +2504,16 @@ def mysql_databases(
         if database_info.ENGINE_COUNT > 1:
             option.format_print(f"There are {database_info.ENGINE_COUNT} storage engines. Be careful.", style=u"bad")
 
-        # TODO set result object
+        results[u"Databases"][database]: typ.Dict = {
+            u"Rows": database_info.ROW_AMOUNT,
+            u"Tables": database_info.TABLE_COUNT,
+            u"Collations": database_info.COLLATION_COUNT,
+            u"Data Size": database_info.DATA_SIZE,
+            u"Data Percent": util.percentage(database_info.DATA_SIZE, database_info.TOTAL_SIZE),
+            u"Index Size": databases_info.INDEX_SIZE,
+            u"Index Percent": util.percentage(database_info.INDEX_SIZE, database_info.TOTAL_SIZE),
+            u"Total Size": database_info.TOTAL_SIZE
+        }
 
         if database_info.COLLATION_COUNT > 1:
             option.format_print(
@@ -2541,22 +2592,21 @@ def mysql_databases(
                 style=u"good"
             )
 
-    return recommendations, adjusted_vars
+    return recommendations, adjusted_vars, results
 
 
 def mysql_indexes(
     sess: orm.session.Session,
     option: tuner.Option,
     info: tuner.Info,
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
     """
 
     :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
-
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
-    """
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
+        list of recommendations and list of adjusted variables, and results    """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 

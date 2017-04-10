@@ -167,3 +167,17 @@ def session_scope(engine):
         raise
     finally:
         session.close()
+
+
+def class_variables(class_instance: typ.Any) -> typ.Sequence[typ.Tuple[str, typ.Any]]:
+    """Returns all variables in a class
+    
+    :param typ.Any class_instance: 
+    :return typ.Sequence[str]: list of variables adn their values
+    """
+    return [
+        (attr, getattr(class_instance, attr))
+        for attr in dir(class_instance)
+        if not callable(getattr(class_instance, attr))
+        and not attr.startswith(u"__")
+    ]
