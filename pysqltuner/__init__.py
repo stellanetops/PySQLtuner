@@ -301,16 +301,34 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
                 raise ConnectionRefusedError
 
 
-def tuning_info(sess: orm.session.Session) -> None:
+def tuning_info(sess: orm.session.Session, option: tuner.Option) -> typ.Dict:
     """Gathers tuning information
 
     :param orm.session.Session sess:
-    :return:
+    :param tuner.Option option:
+    :return typ.Dict: results
     """
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
+
     result = sess.execute(r"\w\s")
-    # TODO set result values
+    filtered_values: typ.Sequence[str] = (
+        u"Threads:",
+        u"Connection id:",
+        u"pager:",
+        u"Using"
+    )
+    info_pattern: str = r"\s*(.*):\s*(.*)"
     for line in result.fetchall():
-        pass
+        if all(line not in filtered_value for filtered_value in filtered_values):
+            matched = re.match(info_pattern, line)
+            key, val = matched.group(1).strip(), matched.group(2).strip()
+            results[u"MySQL Client"][key] = val
+
+    results[u"MySQL Client"][u"Client Path"]: str = option.mysqlcmd
+    results[u"MySQL Client"][u"Admin Path"]: str = option.mysqladmin
+    results[u"MySQL Client"][u"Authentication Info"]: str = option.mysqllogin
+
+    return results
 
 
 def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.Session) -> typ.Dict:
@@ -620,9 +638,9 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
 
 def system_info(option: tuner.Option) -> typ.Dict:
     """Grabs system information
-    
-    :param tuner.Option option: 
-    :return: 
+
+    :param tuner.Option option:
+    :return:
     """
     os_release: str = platform.release()
     option.format_print(os_release, style=u"info")

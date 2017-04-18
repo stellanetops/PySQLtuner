@@ -57,6 +57,7 @@ class Option:
         self.defaults_file: str = None
         self.mysqladmin: str = None
         self.mysqlcmd: str = None
+        self.mysqllogin: str = None
         self.do_remote: bool = False
         self.remote_connect: str = None
         self._cve_file: str = None
@@ -327,9 +328,9 @@ class Info:
 
     def query_from_file(self, query_file: str) -> sqla.Text:
         """Creates SQL query from file and allows formatting
-        
-        :param query_file: 
-        :return: 
+
+        :param query_file:
+        :return:
         """
         query_file_path: str = osp.join(self.query_dir, query_file)
         with open(query_file_path, mode=u"r", encoding=u"utf-8") as qf:
