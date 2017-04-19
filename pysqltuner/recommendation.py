@@ -8,18 +8,6 @@ import pysqltuner.tuner as tuner
 import pysqltuner.util as util
 
 
-def recommendation_template(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
-    """Recommendations for XXX
-
-    :param Option option:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
-    """
-    recommendations: typ.List[str] = []
-    adjusted_vars: typ.List[str] = []
-
-    return recommendations, adjusted_vars
-
-
 def log_file_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
     """Recommendations for Log Files
 
@@ -112,7 +100,7 @@ def log_file_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequ
     return recommendations, adjusted_vars
 
 
-def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
     """Recommendations for XXX
 
     :param tuner.Option option:
@@ -128,7 +116,7 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
         return recommendations, adjusted_vars
 
     cve_found: int = 0
-    cves: typ.Sequence[typ.Dict[int, str]] = []
+    cves: typ.List[typ.Dict[int, str]] = []
     with open(option.cve_file, mode="r", encoding="utf-8") as cf:
         for line in cf:
             cve_: typ.Sequence[str] = line.split(u";")
@@ -158,8 +146,6 @@ def cve_recommendations(option: tuner.Option, info: tuner.Info) -> typ.Sequence[
                     cve_found += 1
             else:
                 continue
-
-    # TODO set another result object value
 
     if cve_found == 0:
         option.format_print(u"NO SECURITY CVE FOUND FOR YOUR VERSION", style=u"good")
