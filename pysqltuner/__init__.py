@@ -89,7 +89,7 @@ def os_setup(option: tuner.Option) -> typ.Dict:
     """Gets name and memory of OS
 
     :param tuner.Option option:
-    :return typ.Tuple[str, int, str, int, str, int, str]:
+    :return typ.Dict: results
     """
     # du_flags: str = u"-b" if re.match(r"Linux", current_os) else u""
     if option.force_mem is not None and option.force_mem > 0:
@@ -111,7 +111,7 @@ def os_setup(option: tuner.Option) -> typ.Dict:
 
     process_memory: int = other_process_memory()
 
-    return {
+    results: typ.Dict = {
         u"OS": {
             u"Physical Memory": {
                 u"bytes": physical_memory,
@@ -127,6 +127,8 @@ def os_setup(option: tuner.Option) -> typ.Dict:
             }
         }
     }
+
+    return results
 
 
 def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
@@ -337,8 +339,10 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     :param tuner.Option option: options object
     :param tuner.Info info: info object
     :param orm.session.Session sess: session
-    :return:
+    :return typ.Dict: results
     """
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
+
     # We need to initiate at least one query so that our data is usable
     version_query: sqla.Text = info.query_from_file(u"version_query.sql")
     try:
@@ -352,6 +356,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
         Version(*version).VERSION.split("-")[0]
         for version in result.fetchall()
     ][0]
+    results[u"MySQL Client"][u"Version"]: str = version
 
     option.format_print(f"VERSION: {version}", style=u"debug")
 
@@ -365,6 +370,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
             for variable in result.fetchall()
         ]
     ]
+    results[u"Variables"]: typ.Sequence[typ.Tuple[str, str]] = variables
 
     statuses_query: sqla.Text = info.query_from_file(u"statuses-query.sql")
     result = sess.execute(statuses_query)
@@ -376,6 +382,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
             for status in result.fetchall()
         ]
     ]
+    results[u"Status"]: typ.Sequence[typ.Tuple[str, str]] = statuses
 
     if info.wsrep_provider_options:
         info.have_galera = True
@@ -399,29 +406,29 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     engine_support_query = info.query_from_file(u"engine_support-query-5_5.sql")
     result = sess.execute(engine_support_query)
     EngineSupport = clct.namedtuple(u"EngineSupport", result.keys())
-    engine_supports: typ.Sequence[typ.Dict[str, str]] = [
-        {engs.ENGINE: engs.SUPPORT}
+    engine_supports: typ.Sequence[typ.Tuple[str, str]] = [
+        (engs.ENGINE, engs.SUPPORT)
         for engs in [
             EngineSupport(*engine_support)
             for engine_support in result.fetchall()
         ]
     ]
 
+    for engine, support in engine_supports:
+        if engine.lower() in (u"federated", u"blackhole"):
+            engine_name: str = f"{engine}_engine"
+        elif engine.lower() == u"berkeleydb":
+            engine_name: str = u"bdb"
+        else:
+            engine_name: str = engine
+
+        engine_value: str = "YES" if support == u"DEFAULT" else support
+
+        setattr(info, f"have_{engine_name}", engine_value)
+        results[u"Storage Engines"][engine_name] = support
     # TODO replication information
 
-    return {
-        u"MySQL Client": {
-            u"Version": version
-        },
-        u"Variables": variables,
-        u"Statuses": statuses,
-        u"Storage Engines": engine_supports,
-        u"Replication": {
-            u"Status": None,
-            u"Slaves": None
-        }
-    }
-
+    return results
 
 def opened_ports() -> typ.Sequence[typ.Sequence[str], typ.Dict]:
     """Finds all opened ports
@@ -553,14 +560,16 @@ def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = 
         option.format_print(f"{delimiter}{info}", style=u"info")
 
 
-def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
+def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
     """Recommendations for kernel
 
     :param tuner.Option option:
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     params: typ.Sequence[str] = (
         u"fs.aio-max-nr",
@@ -580,8 +589,14 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
             param,
             u"2>/dev/null"
         )
+        sysctl_n_devnull_command: typ.Sequence[str] = (
+            u"sysctl",
+            u"-n",
+            param,
+            u"2>/dev/null"
+        )
         info_cmd(sysctl_devnull_command, option, delimiter=u"\t")
-        # TODO result setting
+        results[u"OS"][u"Config"][param] = util.get(sysctl_n_devnull_command)
 
     sysctl_swap_command: typ.Sequence[str] = (
         u"sysctl",
@@ -633,7 +648,7 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     else:
         option.format_print(u"Max Number of AIO events is > 1M.", style=u"info")
 
-    return recommendations, adjusted_vars
+    return recommendations, adjusted_vars, results
 
 
 def system_info(option: tuner.Option) -> typ.Dict:
