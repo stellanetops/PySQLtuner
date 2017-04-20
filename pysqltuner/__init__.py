@@ -56,7 +56,7 @@ def header_print(option: tuner.Option) -> None:
         u" >> Bug reports, feature requests, and downloads at https://github.com/immanuelqrw/PySQLtuner",
         u" >> Run with '--help' for additional options and output filtering"
     ))
-    option.format_print(header_message, style=u"pretty")
+    option.format_print(header_message, style=tuner.Print.PRETTY)
 
 
 def other_process_memory() -> int:
@@ -94,20 +94,20 @@ def os_setup(option: tuner.Option) -> typ.Dict:
     # du_flags: str = u"-b" if re.match(r"Linux", current_os) else u""
     if option.force_mem is not None and option.force_mem > 0:
         physical_memory: int = option.force_mem * 1024 ** 2
-        option.format_print(f"Assuming {option.force_mem} MB of physical memory", style=u"info")
+        option.format_print(f"Assuming {option.force_mem} MB of physical memory", style=tuner.Print.INFO)
 
         if option.force_swap is not None and option.force_swap > 0:
             swap_memory: int = option.force_swap * 1024 ** 2
-            option.format_print(f"Assuming {option.force_swap} MB of swap space", style=u"info")
+            option.format_print(f"Assuming {option.force_swap} MB of swap space", style=tuner.Print.INFO)
         else:
             swap_memory: int = 0
-            option.format_print(u"Assuming 0 MB of swap space (Use --force-swap to specify)", style=u"bad")
+            option.format_print(u"Assuming 0 MB of swap space (Use --force-swap to specify)", style=tuner.Print.BAD)
     else:
         physical_memory: int = psu.virtual_memory().available
         swap_memory: int = psu.swap_memory().total
 
-    option.format_print(f"Physical Memory: {physical_memory}", style=u"debug")
-    option.format_print(f"Swap Memory: {swap_memory}", style=u"debug")
+    option.format_print(f"Physical Memory: {physical_memory}", style=tuner.Print.DEBUG)
+    option.format_print(f"Swap Memory: {swap_memory}", style=tuner.Print.DEBUG)
 
     process_memory: int = other_process_memory()
 
@@ -144,10 +144,10 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         mysqladmin_command: str = shutil.which(u"mysqladmin").strip()
 
     if not os.path.exists(mysqladmin_command) and option.mysqladmin:
-        option.format_print(f"Unable to find the mysqladmin command you specified {mysqladmin_command}", style=u"bad")
+        option.format_print(f"Unable to find the mysqladmin command you specified {mysqladmin_command}", style=tuner.Print.BAD)
         raise FileNotFoundError
     elif not os.path.exists(mysqladmin_command):
-        option.format_print(u"Couldn't find mysqladmin in your $PATH. Is MySQL installed?", style=u"bad")
+        option.format_print(u"Couldn't find mysqladmin in your $PATH. Is MySQL installed?", style=tuner.Print.BAD)
         raise FileNotFoundError
 
     if option.mysqlcmd:
@@ -156,10 +156,10 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         mysql_command: str = shutil.which(u"mysql").strip()
 
     if not os.path.exists(mysql_command) and option.mysqlcmd:
-        option.format_print(f"Unable to find the mysql command you specified {mysql_command}", style=u"bad")
+        option.format_print(f"Unable to find the mysql command you specified {mysql_command}", style=tuner.Print.BAD)
         raise FileNotFoundError
     elif not os.path.exists(mysql_command):
-        option.format_print(u"Couldn't find mysql in your $PATH. Is MySQL installed?", style=u"bad")
+        option.format_print(u"Couldn't find mysql in your $PATH. Is MySQL installed?", style=tuner.Print.BAD)
         raise FileNotFoundError
 
     mysql_defaults_command: typ.Sequence[str] = (
@@ -167,13 +167,13 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         u"--print-defaults"
     )
     mysql_cli_defaults: str = util.get(mysql_defaults_command)
-    option.format_print(f"MySQL Client: {mysql_cli_defaults}", style=u"debug")
+    option.format_print(f"MySQL Client: {mysql_cli_defaults}", style=tuner.Print.DEBUG)
 
     if re.match(r"auto-vertical-output", mysql_cli_defaults):
-        option.format_print(u"Avoid auto-vertical-output in configuration file(s) for MySQL like", style=u"bad")
+        option.format_print(u"Avoid auto-vertical-output in configuration file(s) for MySQL like", style=tuner.Print.BAD)
         raise Exception
 
-    option.format_print(f"MySQL Client {mysql_command}", style=u"debug")
+    option.format_print(f"MySQL Client {mysql_command}", style=tuner.Print.DEBUG)
 
     option.port = 3306 if not option.port else option.port
 
@@ -184,10 +184,10 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         option.host = option.host.strip()
 
         if not option.force_mem and option.host not in (u"127.0.0.1", u"localhost"):
-            option.format_print(u"The --force-mem option is required for remote connections", style=u"bad")
+            option.format_print(u"The --force-mem option is required for remote connections", style=tuner.Print.BAD)
             raise ConnectionRefusedError
 
-        option.format_print(f"Performing tests on {option.host}:{option.port}", style=u"info")
+        option.format_print(f"Performing tests on {option.host}:{option.port}", style=tuner.Print.INFO)
         option.remote_connect: str = f"-h {option.host} -P {option.port}"
 
         if option.host not in (u"127.0.0.1", u"localhost"):
@@ -196,22 +196,22 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
     if option.user and option.password:
         try:
             sess.execute("SELECT 1;")
-            option.format_print(u"Logged in using credentials passed on the command line", style=u"good")
+            option.format_print(u"Logged in using credentials passed on the command line", style=tuner.Print.GOOD)
             return True
         except sqla.exc.SQLAlchemyError:
-            option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
+            option.format_print(u"Attempted to use login credentials, but they were invalid", style=tuner.Print.BAD)
             raise ConnectionRefusedError
 
     svcprop_exe: str = shutil.which(u"svcprop")
     if svcprop_exe.startswith(u"/"):
         try:
             sess.execute("SELECT 1;")
-            option.format_print(u"Logged in using credentials passed from mysql-quickbackup", style=u"good")
+            option.format_print(u"Logged in using credentials passed from mysql-quickbackup", style=tuner.Print.GOOD)
             return True
         except sqla.exc.SQLAlchemyError:
             option.format_print(
                 u"Attempted to use login credentials from mysql-quickbackup, they were invalid",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
             raise ConnectionRefusedError
 
@@ -223,7 +223,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
         except sqla.exc.SQLAlchemyError:
             option.format_print(
                 u"Attempted to use login credentials from Plesk and Plesk 10+, but they failed",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
             raise ConnectionRefusedError
 
@@ -233,7 +233,7 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
             sess.execute("SELECT 1;")
             return True
         except sqla.exc.SQLAlchemyError:
-            option.format_print(u"Attempted to use login credentials from DirectAdmin, but they failed", style=u"bad")
+            option.format_print(u"Attempted to use login credentials from DirectAdmin, but they failed", style=tuner.Print.BAD)
             raise ConnectionRefusedError
 
     elif util.is_readable(u"/etc/mysql/debian.cnf") and not option.do_remote:
@@ -242,15 +242,15 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
             sess.execute("SELECT 1;")
             return True
         except sqla.exc.SQLAlchemyError:
-            option.format_print(u"Logged in using credentials from debian maintenance account.", style=u"good")
+            option.format_print(u"Logged in using credentials from debian maintenance account.", style=tuner.Print.GOOD)
             raise ConnectionRefusedError
 
     elif option.defaults_file and util.is_readable(option.defaults_file):
         # Defaults File
-        option.format_print(f"defaults file detected: {option.defaults_file}", style=u"debug")
+        option.format_print(f"defaults file detected: {option.defaults_file}", style=tuner.Print.DEBUG)
         try:
             sess.execute("SELECT 1;")
-            option.format_print(u"Logged in using credentials from defaults file account.", style=u"good")
+            option.format_print(u"Logged in using credentials from defaults file account.", style=tuner.Print.GOOD)
             return True
         except Exception:
             raise ConnectionRefusedError
@@ -265,13 +265,13 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
             # Did this go well because of a .my.cnf file or is there no password set?
             user_path: str = os.environ["HOME"].strip()
             if not os.path.exists(f"{user_path}/.my.cnf") and not os.path.exists(f"{user_path}/.mylogin.cnf"):
-                option.format_print(u"Successfully authenticated with no password - SECURITY RISK!", style=u"bad")
+                option.format_print(u"Successfully authenticated with no password - SECURITY RISK!", style=tuner.Print.BAD)
 
             return True
 
         except sqla.exc.SQLAlchemyError:
             if option.no_ask:
-                option.format_print(u"Attempted to use login credentials, but they were invalid", style=u"bad")
+                option.format_print(u"Attempted to use login credentials, but they were invalid", style=tuner.Print.BAD)
                 raise ConnectionRefusedError
 
             # If --user is defined no need to ask for username
@@ -294,12 +294,12 @@ def mysql_setup(sess: orm.session.Session, option: tuner.Option) -> bool:
                     if not os.path.exists(f"{user_path}/.my.cnf"):
                         option.format_print(
                             u"Successfully authenticated with no password - SECURITY RISK!",
-                            style=u"bad"
+                            style=tuner.Print.BAD
                         )
 
                 return True
             except sqla.exc.SQLAlchemyError:
-                option.format_print(u"Attempted to use login credentials but they were invalid", style=u"bad")
+                option.format_print(u"Attempted to use login credentials but they were invalid", style=tuner.Print.BAD)
                 raise ConnectionRefusedError
 
 
@@ -348,7 +348,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     try:
         result = sess.execute(version_query)
     except Exception:
-        option.format_print(u"Not enough privileges for running PySQLTuner", style=u"bad")
+        option.format_print(u"Not enough privileges for running PySQLTuner", style=tuner.Print.BAD)
         raise
 
     Version = clct.namedtuple(u"Version", result.keys())
@@ -358,7 +358,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     ][0]
     results[u"MySQL Client"][u"Version"]: str = version
 
-    option.format_print(f"VERSION: {version}", style=u"debug")
+    option.format_print(f"VERSION: {version}", style=tuner.Print.DEBUG)
 
     variables_query: sqla.Text = info.query_from_file(u"variables-query.sql")
     result = sess.execute(variables_query)
@@ -386,7 +386,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
 
     if info.wsrep_provider_options:
         info.have_galera = True
-        option.format_print(f"Galera options: {info.wsrep_provider_options}", style=u"debug")
+        option.format_print(f"Galera options: {info.wsrep_provider_options}", style=tuner.Print.DEBUG)
 
     # Workaround for MySQL bug #59393 wrt. ignore-builtin-innodb
     if info.ignore_builtin_innodb:
@@ -429,6 +429,7 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
     # TODO replication information
 
     return results
+
 
 def opened_ports() -> typ.Sequence[typ.Sequence[str], typ.Dict]:
     """Finds all opened ports
@@ -482,12 +483,12 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
             space_perc: float = psu.disk_usage(disk.mountpoint).percent
 
             if space_perc > 85:
-                option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=u"bad")
+                option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=tuner.Print.BAD)
                 recommendations.append(
                     f"Add some space to {mount_point} mount point."
                 )
             else:
-                option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=u"info")
+                option.format_print(f"Mount point {mount_point} is using {space_perc} % total space", style=tuner.Print.INFO)
 
             mount_space.append({mount_point: space_perc})
 
@@ -502,7 +503,7 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
             if inode_perc > 85:
                 option.format_print(
                     f"Mount point {mount_point} is using {inode_perc} % of max allowed inodes",
-                    style=u"bad"
+                    style=tuner.Print.BAD
                 )
                 recommendations.append(
                     f"Add some space to {mount_point} mount point."
@@ -510,7 +511,7 @@ def fs_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str]]:
             else:
                 option.format_print(
                     f"Mount point {mount_point} is using {inode_perc} % of max allowed inodes",
-                    style=u"info"
+                    style=tuner.Print.INFO
                 )
 
             mount_inode.append({mount_point: inode_perc})
@@ -550,14 +551,14 @@ def info_cmd(command: typ.Sequence[str], option: tuner.Option, delimiter: str = 
     :return:
     """
     cmd: str = f"{command}"
-    option.format_print(f"CMD: {cmd}", style=u"debug")
+    option.format_print(f"CMD: {cmd}", style=tuner.Print.DEBUG)
 
     result: str = tuple(
         info.strip()
         for info in util.get(command)
     )
     for info in result:
-        option.format_print(f"{delimiter}{info}", style=u"info")
+        option.format_print(f"{delimiter}{info}", style=tuner.Print.INFO)
 
 
 def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
@@ -581,7 +582,7 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
         u"vm.swappiness"
     )
 
-    option.format_print(u"Information about kernel tuning:", style=u"info")
+    option.format_print(u"Information about kernel tuning:", style=tuner.Print.INFO)
 
     for param in params:
         sysctl_devnull_command: typ.Sequence[str] = (
@@ -604,11 +605,11 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
         u"vm.swappiness"
     )
     if int(util.get(sysctl_swap_command)) > 10:
-        option.format_print(u"Swappiness is > 10, please consider having a value lower than 10", style=u"bad")
+        option.format_print(u"Swappiness is > 10, please consider having a value lower than 10", style=tuner.Print.BAD)
         recommendations.append(u"Setup swappiness  to be <= 10")
         adjusted_vars.append(u"vm.swappiness <= 10 (echo 0 > /proc/sys/vm/swappiness)")
     else:
-        option.format_print(u"Swappiness is < 10.", style=u"info")
+        option.format_print(u"Swappiness is < 10.", style=tuner.Print.INFO)
 
     # only if /proc/sys/sunrpc exists
     slot_table_command: typ.Sequence[str] = (
@@ -622,14 +623,14 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
     if os.path.isfile(u"/proc/sys/sunrpc") and (not tcp_slot_entries or int(tcp_slot_entries) < 100):
         option.format_print(
             u"Initial TCP slot entries is < 1M, please consider having a value greater than 100",
-            style=u"bad"
+            style=tuner.Print.BAD
         )
         recommendations.append(u"Setup Initial TCP slot entries > 100")
         adjusted_vars.append(
             u"sunrpc.tcp_slot_table_entries > 100 (echo 128 > /proc/sys/sunrpc/tcp_slot_table_entries)"
         )
     else:
-        option.format_print(u"TCP slot entries is > 100.", style=u"info")
+        option.format_print(u"TCP slot entries is > 100.", style=tuner.Print.INFO)
 
     aio_max_command: typ.Sequence[str] = (
         u"sysctl",
@@ -642,11 +643,11 @@ def kernel_info(option: tuner.Option) -> typ.Sequence[typ.List[str], typ.List[st
         option.format_print((
                 u"Max running total of the number of events is < 1M,"
                 u"please consider having a value greater than 1M"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
         recommendations.append(u"Setup max running number events greater than 1M")
         adjusted_vars.append(u"fs.aio-max-nr > 1M (echo 1048576 > /proc/sys/fs/aio-max-nr)")
     else:
-        option.format_print(u"Max Number of AIO events is > 1M.", style=u"info")
+        option.format_print(u"Max Number of AIO events is > 1M.", style=tuner.Print.INFO)
 
     return recommendations, adjusted_vars, results
 
@@ -658,44 +659,44 @@ def system_info(option: tuner.Option) -> typ.Dict:
     :return:
     """
     os_release: str = platform.release()
-    option.format_print(os_release, style=u"info")
+    option.format_print(os_release, style=tuner.Print.INFO)
 
     virtual_machine: bool = is_virtual_machine()
     if virtual_machine:
-        option.format_print(u"Machine Type\t\t\t\t\t: Virtual Machine", style=u"info")
+        option.format_print(u"Machine Type\t\t\t\t\t: Virtual Machine", style=tuner.Print.INFO)
     else:
-        option.format_print(u"Machine Type\t\t\t\t\t: Physical Machine", style=u"info")
+        option.format_print(u"Machine Type\t\t\t\t\t: Physical Machine", style=tuner.Print.INFO)
 
     is_connected: bool = req.get(u"http://ipecho.net/plain").status_code == 200
     if is_connected:
-        option.format_print(u"Internet\t\t\t\t\t: Connected", style=u"info")
+        option.format_print(u"Internet\t\t\t\t\t: Connected", style=tuner.Print.INFO)
     else:
-        option.format_print(u"Internet\t\t\t\t\t: Disconnected", style=u"bad")
+        option.format_print(u"Internet\t\t\t\t\t: Disconnected", style=tuner.Print.BAD)
 
     cpu_count: int = psu.cpu_count()
-    option.format_print(f"Number of Core CPU : {cpu_count}", style=u"info")
+    option.format_print(f"Number of Core CPU : {cpu_count}", style=tuner.Print.INFO)
 
     os_type: str = platform.system()
-    option.format_print(f"Operating System Type : {os_type}", style=u"info")
+    option.format_print(f"Operating System Type : {os_type}", style=tuner.Print.INFO)
 
     kernel_release: str = platform.release()
-    option.format_print(f"Kernel Release : {kernel_release}", style=u"info")
+    option.format_print(f"Kernel Release : {kernel_release}", style=tuner.Print.INFO)
 
     hostname: str = socket.gethostname()
-    option.format_print(f"Hostname\t\t\t\t: {hostname}", style=u"info")
+    option.format_print(f"Hostname\t\t\t\t: {hostname}", style=tuner.Print.INFO)
 
     internal_ip: str = socket.gethostbyname(hostname)
-    option.format_print(f"Internal IP\t\t\t\t: {internal_ip}", style=u"info")
+    option.format_print(f"Internal IP\t\t\t\t: {internal_ip}", style=tuner.Print.INFO)
 
-    option.format_print(u"Network Cards\t\t\t: ", style=u"info")
+    option.format_print(u"Network Cards\t\t\t: ", style=tuner.Print.INFO)
     for network_card in psu.net_if_stats().keys():
         option.format_print(network_card)
 
     try:
         external_ip: str = req.get(u"http://ipecho.net/plain").text
-        option.format_print(f"External IP\t\t\t\t: {external_ip}", style=u"info")
+        option.format_print(f"External IP\t\t\t\t: {external_ip}", style=tuner.Print.INFO)
     except req.exceptions.MissingSchema as err:
-        option.format_print(f"External IP\t\t\t\t: Can't check because of Internet connectivity", style=u"bad")
+        option.format_print(f"External IP\t\t\t\t: Can't check because of Internet connectivity", style=tuner.Print.BAD)
         raise err
 
     name_server_command: typ.Sequence[str] = (
@@ -707,18 +708,18 @@ def system_info(option: tuner.Option) -> typ.Dict:
         u"'{print \$2}'"
     )
     name_servers: str = util.get(name_server_command)
-    option.format_print(f"Name Servers\t\t\t\t: {name_servers}", style=u"info")
+    option.format_print(f"Name Servers\t\t\t\t: {name_servers}", style=tuner.Print.INFO)
 
-    option.format_print(u"Logged in Users\t\t\t\t:", style=u"info")
+    option.format_print(u"Logged in Users\t\t\t\t:", style=tuner.Print.INFO)
     logged_users: typ.Sequence[str] = [
         user.name
         for user in psu.users()
     ]
     for logged_user in logged_users:
-        option.format_print(logged_user, style=u"info")
+        option.format_print(logged_user, style=tuner.Print.INFO)
 
     ram: str = util.bytes_to_string(psu.virtual_memory().free)
-    option.format_print(f"Ram Usages in MB\t\t: {ram}", style=u"info")
+    option.format_print(f"Ram Usages in MB\t\t: {ram}", style=tuner.Print.INFO)
 
     load_average: str = os.getloadavg()
 
@@ -762,22 +763,22 @@ def system_recommendations(
 
     os_name: str = platform.system()
     if not re.match(r"Linux", os_name, re.IGNORECASE):
-        option.format_print(u"Skipped due to non Linux Server", style=u"info")
+        option.format_print(u"Skipped due to non Linux Server", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
-    option.format_print(u"Look for related Linux system recommendations", style=u"pretty")
+    option.format_print(u"Look for related Linux system recommendations", style=tuner.Print.PRETTY)
 
     system_info(option)
     other_proc_mem: int = other_process_memory()
 
-    option.format_print(f"User process except mysqld used {util.bytes_to_string(other_proc_mem)} RAM", style=u"info")
+    option.format_print(f"User process except mysqld used {util.bytes_to_string(other_proc_mem)} RAM", style=tuner.Print.INFO)
 
     if 0.15 * physical_memory < other_proc_mem:
         option.format_print((
             u"Other user process except mysqld used more than 15% of total physical memory "
             f"{util.percentage(other_proc_mem, physical_memory)}% "
             f"({util.bytes_to_string(other_proc_mem)} / {util.bytes_to_string(physical_memory)})"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
         recommendations.append(u"Consider stopping or dedicate server for additional process other than mysqld")
         adjusted_vars.append(
             u"DON'T APPLY SETTINGS BECAUSE THERE ARE TOO MANY PROCESSES RUNNING ON THIS SERVER. OOM KILL CAN OCCUR!"
@@ -787,32 +788,32 @@ def system_recommendations(
             u"Other user process except mysqld used more than 15% of total physical memory "
             f"{util.percentage(other_proc_mem, physical_memory)}% "
             f"({util.bytes_to_string(other_proc_mem)} / {util.bytes_to_string(physical_memory)})"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
     if option.max_port_allowed > 0:
         open_ports: typ.Sequence[str] = opened_ports()
-        option.format_print(f"There are {len(open_ports)} listening port(s) on this server", style=u"info")
+        option.format_print(f"There are {len(open_ports)} listening port(s) on this server", style=tuner.Print.INFO)
 
         if len(open_ports) > option.max_port_allowed:
             option.format_print((
                 f"There are too many listening ports: "
                 f"{len(open_ports)} opened > {option.max_port_allowed} allowed"
-            ), style=u"bad")
+            ), style=tuner.Print.BAD)
             recommendations.append(
                 u"Consider dedicating a server for your database installation with less services running on!"
             )
         else:
             option.format_print(
                 f"There are less than {option.max_port_allowed} opened ports on this server",
-                style=u"info"
+                style=tuner.Print.INFO
             )
 
     for banned_port in banned_ports:
         if is_open_port(banned_port):
-            option.format_print(f"Banned port: {banned_port} is opened.", style=u"bad")
+            option.format_print(f"Banned port: {banned_port} is opened.", style=tuner.Print.BAD)
             recommendations.append(f"Port {banned_port} is opened. Consider stopping program handling this port.")
         else:
-            option.format_print(f"{banned_port} is not opened.", style=u"good")
+            option.format_print(f"{banned_port} is not opened.", style=tuner.Print.GOOD)
 
     fs_recs, fs_vars = fs_info(option)
     kern_recs, kern_vars = kernel_info(option)
@@ -842,9 +843,9 @@ def security_recommendations(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.format_print(u"Security Recommendations", style=u"subheader")
+    option.format_print(u"Security Recommendations", style=tuner.Print.SUBHEADER)
     if option.skip_password:
-        option.format_print(u"Skipped due to --skip-password option", style=u"info")
+        option.format_print(u"Skipped due to --skip-password option", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
     password_column: str = u"PASSWORD"
@@ -860,20 +861,20 @@ def security_recommendations(
         for user in result.fetchall()
     ]
 
-    option.format_print(f"{users}", style=u"debug")
+    option.format_print(f"{users}", style=tuner.Print.DEBUG)
 
     if users:
         for user in sorted(users):
-            option.format_print(f"User '{user}' is an anonymous account.", style=u"bad")
+            option.format_print(f"User '{user}' is an anonymous account.", style=tuner.Print.BAD)
         recommendations.append(
             f"Remove Anonymous User accounts - there are {len(users)} anonymous accounts."
         )
     else:
-        option.format_print(u"There are no anonymous accounts for any database users", style=u"good")
+        option.format_print(u"There are no anonymous accounts for any database users", style=tuner.Print.GOOD)
 
     if (info.ver_major, info.ver_minor, info.ver_micro) <= (5, 1):
-        option.format_print(u"No more password checks for MySQL <= 5.1", style=u"bad")
-        option.format_print(u"MySQL version <= 5.1 are deprecated and are at end of support", style=u"bad")
+        option.format_print(u"No more password checks for MySQL <= 5.1", style=tuner.Print.BAD)
+        option.format_print(u"MySQL version <= 5.1 are deprecated and are at end of support", style=tuner.Print.BAD)
         return recommendations, adjusted_vars
 
     # Looking for Empty Password
@@ -891,13 +892,13 @@ def security_recommendations(
 
     if password_users:
         for user in password_users:
-            option.format_print(f"User '{user}' has no password set.", style=u"bad")
+            option.format_print(f"User '{user}' has no password set.", style=tuner.Print.BAD)
         recommendations.append((
             u"Set up a Password for user with the following SQL statement: "
             u"( SET PASSWORD FOR 'user'@'SpecificDNSorIp' = PASSWORD('secure_password'); )"
         ))
     else:
-        option.format_print(u"All database users have passwords assigned", style=u"good")
+        option.format_print(u"All database users have passwords assigned", style=tuner.Print.GOOD)
 
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 7):
         mysql_plugin_query: sqla.Text = info.query_from_file(u"plugin-query.sql")
@@ -912,7 +913,7 @@ def security_recommendations(
         if plugin_amount >= 1:
             option.format_print(
                 u"Bug #80860 MySQL 5.7: Avoid testing password when validate_password is activated",
-                style=u"info"
+                style=tuner.Print.INFO
             )
             return recommendations, adjusted_vars
 
@@ -927,7 +928,7 @@ def security_recommendations(
 
     if capitalize_users:
         for user in capitalize_users:
-            option.format_print(f"User '{user}' has user name as password", style=u"bad")
+            option.format_print(f"User '{user}' has user name as password", style=tuner.Print.BAD)
         recommendations.append((
             u"Set up a Password for user with the following SQL statement: "
             u"( SET PASSWORD FOR 'user'@'SpecificDNSorIP' = PASSWORD('secure_password'); )"
@@ -942,17 +943,17 @@ def security_recommendations(
 
     if host_users:
         for user in host_users:
-            option.format_print(f"User '{user}' does not have specific host restrictions.", style=u"bad")
+            option.format_print(f"User '{user}' does not have specific host restrictions.", style=tuner.Print.BAD)
         recommendations.append(u"Restrict Host for 'user'@'%' to 'user'@SpecificDNSorIP'")
 
     if os.path.isfile(option.basic_passwords_file):
-        option.format_print(u"There is no basic password file list!", style=u"bad")
+        option.format_print(u"There is no basic password file list!", style=tuner.Print.BAD)
         return recommendations, adjusted_vars
 
     with open(option.basic_passwords_file, mode=u"r", encoding=u"utf-8") as bpf:
         passwords: typ.Sequence[str] = bpf.readlines()
 
-    option.format_print(f"There are {len(passwords)} basic passwords in the list", style=u"info")
+    option.format_print(f"There are {len(passwords)} basic passwords in the list", style=tuner.Print.INFO)
     bad_amount: int = 0
 
     if passwords:
@@ -969,16 +970,16 @@ def security_recommendations(
                 for user in result.fetchall()
             ]
 
-            option.format_print(f"There are {len(capital_password_users)} items.", style=u"debug")
+            option.format_print(f"There are {len(capital_password_users)} items.", style=tuner.Print.DEBUG)
             if capital_password_users:
                 for user in capital_password_users:
                     option.format_print((
                         f"User '{user}' is using weak password: "
                         f"{password} in a lower, upper, or capitalized derivative version."
-                    ), style=u"bad")
+                    ), style=tuner.Print.BAD)
                     bad_amount += 1
             if interpass_amount % 1000 == 0:
-                option.format_print(f"{interpass_amount} / {len(passwords)}", style=u"debug")
+                option.format_print(f"{interpass_amount} / {len(passwords)}", style=tuner.Print.DEBUG)
     if bad_amount > 0:
         recommendations.append(
             f"{bad_amount} user(s) used a basic or weak password."
@@ -987,11 +988,54 @@ def security_recommendations(
     return recommendations, adjusted_vars
 
 
-def replication_status(option: tuner.Option) -> None:
-    option.format_print(u"Replication Metrics", style=u"subheader")
-    # TODO get info from variable gathering function
-    # option.format_print(f"Galera Synchronous replication {option.}", style=u"info")
+def replication_status(option: tuner.Option, info: tuner.Info) -> typ.Dict:
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
+    option.format_print(u"Replication Metrics", style=tuner.Print.SUBHEADER)
+    # TODO get info from variable gathering function
+    option.format_print(f"Galera Synchronous replication {info.have_galera}", style=tuner.Print.INFO)
+
+    if not info.slaves:
+        option.format_print(u"No replication slave(s) for this server", style=tuner.Print.INFO)
+    else:
+        option.format_print(f"This server is acting as master for {len(info.slaves)} servers", style=tuner.Print.INFO)
+
+    if not info.replicas and not info.slaves:
+        option.format_print(u"This is a standalone server", style=tuner.Print.INFO)
+        return results
+
+    if not info.replicas:
+        option.format_print(u"No replication setup for this server", style=tuner.Print.INFO)
+        return results
+
+    results[u"Replication"][u"Status"] = info.replicas
+
+    io_running: str = info.replicas[u"Slave_IO_Running"]
+    option.format_print(f"IO RUNNING: {io_running}", style=tuner.Print.DEBUG)
+    sql_running: str = info.replicas[u"Slave_SQL_Running"]
+    option.format_print(f"SQL RUNNING: {sql_running}", style=tuner.Print.DEBUG)
+    seconds_behind_master: int = info.replicas[u"Seconds_Behind_Master"]
+    option.format_print(f"SECONDS: {seconds_behind_master}", style=tuner.Print.DEBUG)
+
+    if u"yes" not in io_running.lower() or u"yes" not in sql_running.lower():
+        option.format_print(u"This replication slave is not running but seems to be configured", style=tuner.Print.BAD)
+
+    if u"yes" in io_running.lower() and u"yes" in sql_running.lower():
+        if not info.read_only:
+            option.format_print(u"This replication slave is running with the read_only option disabled", style=tuner.Print.BAD)
+        else:
+            option.format_print(u"This replication slave is running with the read_only option enabled.", style=tuner.Print.GOOD)
+
+        if seconds_behind_master > 0:
+            seconds_behind_msg: str = u" ".join((
+                u"This replication slave is lagging and slave is",
+                f"{seconds_behind_master} second(s) behind master host."
+            ))
+            option.format_print(seconds_behind_msg, style=tuner.Print.BAD)
+        else:
+            option.format_print(u"This replication slave is up to date with master", style=tuner.Print.GOOD)
+
+    return results
 
 def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
     """Check MySQL Version
@@ -1004,11 +1048,11 @@ def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
     full_version: str = f"{info.ver_major}.{info.ver_minor}.{info.ver_micro}"
 
     if (info.ver_major, info.ver_major, info.ver_micro) < (5, 1):
-        option.format_print(f"Your MySQL version {full_version} is EOL software! Upgrade soon!", style=u"bad")
+        option.format_print(f"Your MySQL version {full_version} is EOL software! Upgrade soon!", style=tuner.Print.BAD)
     elif (6 <= info.ver_major <= 9) or info.ver_major >= 12:
-        option.format_print(f"Currently running unsupported MySQL version {full_version}", style=u"bad")
+        option.format_print(f"Currently running unsupported MySQL version {full_version}", style=tuner.Print.BAD)
     else:
-        option.format_print(f"Currently running supported MySQL version {full_version}", style=u"good")
+        option.format_print(f"Currently running supported MySQL version {full_version}", style=tuner.Print.GOOD)
 
 
 def check_architecture(option: tuner.Option) -> typ.Dict:
@@ -1025,12 +1069,12 @@ def check_architecture(option: tuner.Option) -> typ.Dict:
     physical_memory: int = psu.virtual_memory().available
 
     if "64" in arch_bit:
-        option.format_print("Operating on 64-bit architecture", style=u"good")
+        option.format_print("Operating on 64-bit architecture", style=tuner.Print.GOOD)
     else:
         if physical_memory > 2 ** 31:
-            option.format_print(u"Switch to 64-bit OS - MySQL cannot currently use all of your RAM", style=u"bad")
+            option.format_print(u"Switch to 64-bit OS - MySQL cannot currently use all of your RAM", style=tuner.Print.BAD)
         else:
-            option.format_print(u"Operating on a 32-bit architecture with less than 2GB RAM", style=u"good")
+            option.format_print(u"Operating on a 32-bit architecture with less than 2GB RAM", style=tuner.Print.GOOD)
 
     return {
         u"OS": {
@@ -1057,9 +1101,9 @@ def check_storage_engines(
     adjusted_vars: typ.List[str] = []
     results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
-    option.format_print(u"Storage Engine Statistics", style=u"subheader")
+    option.format_print(u"Storage Engine Statistics", style=tuner.Print.SUBHEADER)
     if option.skip_size:
-        option.format_print(u"Skipped due to --skip-size option", style=u"info")
+        option.format_print(u"Skipped due to --skip-size option", style=tuner.Print.INFO)
         return recommendations, adjusted_vars, results
 
     engines: typ.List[str] = []
@@ -1127,7 +1171,7 @@ def check_storage_engines(
     ]
     results[u"Databases"][u"List"]: typ.Sequence[str] = databases
 
-    option.format_print(f"Status {engines}", style=u"info")
+    option.format_print(f"Status {engines}", style=tuner.Print.INFO)
 
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         # MySQL 5 servers can have table sizes calculated quickly from information schema
@@ -1143,7 +1187,7 @@ def check_storage_engines(
         ]
 
         for engine, size, count, data_size, index_size in engine_sizes:
-            option.format_print(f"Engine Found: {engine}", style=u"debug")
+            option.format_print(f"Engine Found: {engine}", style=tuner.Print.DEBUG)
             if not engine:
                 continue
             engine_stats[engine] = count
@@ -1153,8 +1197,8 @@ def check_storage_engines(
                 u"Data Size": data_size,
                 u"Index Size": index_size
             }
-        # TODO STUFF
-        if info.innodb_file_per_table:
+
+        if not info.innodb_file_per_table:
             innodb_clause: str = u"AND `tbl`.`ENGINE` <> 'InnoDB'"
         else:
             innodb_clause: str = u""
@@ -1188,7 +1232,7 @@ def calculations(
     calc: tuner.Calc
 ) -> None:
     if stat.questions < 1:
-        option.format_print(u"Your server has not answered any queries - cannot continue...", style=u"bad")
+        option.format_print(u"Your server has not answered any queries - cannot continue...", style=tuner.Print.BAD)
         raise NotImplementedError
 
     # Per-thread Memory
@@ -1235,12 +1279,12 @@ def calculations(
     )
     calc.pct_max_physical_memory = util.percentage(calc.max_peak_memory, stat.physical_memory)
 
-    option.format_print(f"Max Used Memory: {util.bytes_to_string(calc.max_used_memory)}", style=u"debug")
-    option.format_print(f"Max Used Percentage RAM: {util.bytes_to_string(calc.pct_max_used_memory)}%", style=u"debug")
-    option.format_print(f"Max Peak Memory: {util.bytes_to_string(calc.max_peak_memory)}", style=u"debug")
+    option.format_print(f"Max Used Memory: {util.bytes_to_string(calc.max_used_memory)}", style=tuner.Print.DEBUG)
+    option.format_print(f"Max Used Percentage RAM: {util.bytes_to_string(calc.pct_max_used_memory)}%", style=tuner.Print.DEBUG)
+    option.format_print(f"Max Peak Memory: {util.bytes_to_string(calc.max_peak_memory)}", style=tuner.Print.DEBUG)
     option.format_print(
         f"Max Peak Percentage RAM: {util.bytes_to_string(calc.pct_max_physical_memory)}%",
-        style=u"debug"
+        style=tuner.Print.DEBUG
     )
 
     # Slow Queries
@@ -1252,9 +1296,9 @@ def calculations(
 
     # Aborted Connections
     calc.pct_connections_aborted = util.percentage(stat.aborted_connections, stat.connections)
-    option.format_print(f"Aborted Connections: {stat.aborted_connections}", style=u"debug")
-    option.format_print(f"Connections: {stat.connections}", style=u"debug")
-    option.format_print(f"Percent of Connections Aborted {calc.pct_connections_aborted}", style=u"debug")
+    option.format_print(f"Aborted Connections: {stat.aborted_connections}", style=tuner.Print.DEBUG)
+    option.format_print(f"Connections: {stat.connections}", style=tuner.Print.DEBUG)
+    option.format_print(f"Percent of Connections Aborted {calc.pct_connections_aborted}", style=tuner.Print.DEBUG)
 
     # Key Buffers
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (4, 1) and info.key_buffer_size > 0:
@@ -1439,17 +1483,17 @@ def calculations(
     calc.pct_read_efficiency = util.percentage(
         stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads
     )
-    option.format_print(f"pct_read_efficiency: {calc.pct_read_efficiency}", style=u"debug")
-    option.format_print(f"innodb_buffer_pool_reads: {stat.innodb_buffer_pool_reads}", style=u"debug")
-    option.format_print(f"innodb_buffer_pool_read_requests: {stat.innodb_buffer_pool_read_requests}", style=u"debug")
+    option.format_print(f"pct_read_efficiency: {calc.pct_read_efficiency}", style=tuner.Print.DEBUG)
+    option.format_print(f"innodb_buffer_pool_reads: {stat.innodb_buffer_pool_reads}", style=tuner.Print.DEBUG)
+    option.format_print(f"innodb_buffer_pool_read_requests: {stat.innodb_buffer_pool_read_requests}", style=tuner.Print.DEBUG)
 
     # InnoDB log write cache efficiency
     calc.pct_write_efficiency = util.percentage(
         stat.innodb_log_write_requests - stat.innodb_log_writes
     )
-    option.format_print(f"pct_write_efficiency: {calc.pct_write_efficiency}", style=u"debug")
-    option.format_print(f"innodb_log_writes: {stat.innodb_log_writes}", style=u"debug")
-    option.format_print(f"innodb_log_write_requests: {stat.innodb_log_write_requests}", style=u"debug")
+    option.format_print(f"pct_write_efficiency: {calc.pct_write_efficiency}", style=tuner.Print.DEBUG)
+    option.format_print(f"innodb_log_writes: {stat.innodb_log_writes}", style=tuner.Print.DEBUG)
+    option.format_print(f"innodb_log_write_requests: {stat.innodb_log_write_requests}", style=tuner.Print.DEBUG)
 
     if stat.innodb_buffer_pool_pages_total > 0:
         calc.pct_innodb_buffer_used = util.percentage(
@@ -1483,7 +1527,7 @@ def mysql_stats(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.format_print(u"Performance Metrics", style=u"subheader")
+    option.format_print(u"Performance Metrics", style=tuner.Print.SUBHEADER)
     # Show uptime, queries per second, connections, traffic stats
     if stat.uptime > 0:
         qps: str = f"{round(stat.questions / stat.uptime, 3)}"
@@ -1495,20 +1539,20 @@ def mysql_stats(
         f"Up for: {util.pretty_uptime(stat.uptime)}",
         f"({stat.questions} q [{qps} qps], {stat.connections} conn",
         f"TX: {util.bytes_to_string(stat.bytes_sent)}, RX: {util.bytes_to_string(stat.bytes_received)})"
-    )), style=u"info")
+    )), style=tuner.Print.INFO)
 
-    option.format_print(f"Reads / Writes {calc.pct_reads}% / {calc.pct_writes}%", style=u"info")
+    option.format_print(f"Reads / Writes {calc.pct_reads}% / {calc.pct_writes}%", style=tuner.Print.INFO)
 
     # Binlog Cache
     if not info.log_bin:
-        option.format_print(u"Binary logging is not enabled", style=u"info")
+        option.format_print(u"Binary logging is not enabled", style=tuner.Print.INFO)
     else:
-        option.format_print(f"Binary logging is enabled (GTID MODE: {info.gtid_mode}", style=u"info")
+        option.format_print(f"Binary logging is enabled (GTID MODE: {info.gtid_mode}", style=tuner.Print.INFO)
 
     # Memory Usage
-    option.format_print(f"Physical Memory       : {util.bytes_to_string(stat.physical_memory)}", style=u"info")
-    option.format_print(f"Max MySQL Memory      : {util.bytes_to_string(calc.max_peak_memory)}", style=u"info")
-    option.format_print(f"Other Process Memory  : {util.bytes_to_string(other_process_memory())}", style=u"info")
+    option.format_print(f"Physical Memory       : {util.bytes_to_string(stat.physical_memory)}", style=tuner.Print.INFO)
+    option.format_print(f"Max MySQL Memory      : {util.bytes_to_string(calc.max_peak_memory)}", style=tuner.Print.INFO)
+    option.format_print(f"Other Process Memory  : {util.bytes_to_string(other_process_memory())}", style=tuner.Print.INFO)
 
     return recommendations, adjusted_vars
 
@@ -1531,7 +1575,7 @@ def mysql_myisam(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.format_print(u"MyISAM Metrics", style=u"subheader")
+    option.format_print(u"MyISAM Metrics", style=tuner.Print.SUBHEADER)
 
     # Key Buffer usage
     key_buffer_used_msg: str = (
@@ -1541,17 +1585,17 @@ def mysql_myisam(
     )
 
     if calc.pct_key_buffer_used == 90:
-        option.format_print(key_buffer_used_msg, style=u"debug")
+        option.format_print(key_buffer_used_msg, style=tuner.Print.DEBUG)
     elif calc.pct_key_buffer_used < 90:
-        option.format_print(key_buffer_used_msg, style=u"bad")
+        option.format_print(key_buffer_used_msg, style=tuner.Print.BAD)
     else:
-        option.format_print(key_buffer_used_msg, style=u"good")
+        option.format_print(key_buffer_used_msg, style=tuner.Print.GOOD)
 
     # Key Buffer
     if calc.total_myisam_indexes == 0 and option.do_remote:
         recommendations.append(u"Unable to calculate MyISAM indexes on remote MySQL server < 5.0.0")
     elif calc.total_myisam_indexes == 0:
-        option.format_print(u"None of your MyISAM tables are indexed - add indexes immediately", style=u"bad")
+        option.format_print(u"None of your MyISAM tables are indexed - add indexes immediately", style=tuner.Print.BAD)
     else:
         key_buffer_size_msg: str = (
             f"Key Buffer Size / Total MyISAM indexes: "
@@ -1559,10 +1603,10 @@ def mysql_myisam(
             f"{util.bytes_to_string(calc.total_myisam_indexes)}"
         )
         if info.key_buffer_size < calc.total_myisam_indexes and calc.pct_keys_from_memory < 95:
-            option.format_print(key_buffer_size_msg, style=u"bad")
+            option.format_print(key_buffer_size_msg, style=tuner.Print.BAD)
             adjusted_vars.append(f"key_buffer_size (> {util.bytes_to_string(calc.total_myisam_indexes)})")
         else:
-            option.format_print(key_buffer_size_msg, style=u"good")
+            option.format_print(key_buffer_size_msg, style=tuner.Print.GOOD)
 
         read_key_buffer_msg: str = (
             f"Read Key Buffer Hit Rate: {calc.pct_keys_from_memory}% "
@@ -1571,12 +1615,12 @@ def mysql_myisam(
         )
         if stat.key_read_requests > 0:
             if calc.pct_keys_from_memory < 95:
-                option.format_print(read_key_buffer_msg, style=u"bad")
+                option.format_print(read_key_buffer_msg, style=tuner.Print.BAD)
             else:
-                option.format_print(read_key_buffer_msg, style=u"good")
+                option.format_print(read_key_buffer_msg, style=tuner.Print.GOOD)
         else:
             # No Queries have run that would use keys
-            option.format_print(read_key_buffer_msg, style=u"debug")
+            option.format_print(read_key_buffer_msg, style=tuner.Print.DEBUG)
 
         write_key_buffer_msg: str = (
             f"Write Key Buffer Hit Rate: {calc.pct_write_keys_from_memory}% "
@@ -1585,12 +1629,12 @@ def mysql_myisam(
         )
         if stat.key_write_requests > 0:
             if calc.pct_write_keys_from_memory < 95:
-                option.format_print(write_key_buffer_msg, style=u"bad")
+                option.format_print(write_key_buffer_msg, style=tuner.Print.BAD)
             else:
-                option.format_print(write_key_buffer_msg, style=u"good")
+                option.format_print(write_key_buffer_msg, style=tuner.Print.GOOD)
         else:
             # No Queries have run that would use keys
-            option.format_print(write_key_buffer_msg, style=u"debug")
+            option.format_print(write_key_buffer_msg, style=tuner.Print.DEBUG)
 
     return recommendations, adjusted_vars
 
@@ -1605,27 +1649,27 @@ def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[t
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
 
-    option.format_print(u"ThreadPool Metrics", style=u"subheader")
+    option.format_print(u"ThreadPool Metrics", style=tuner.Print.SUBHEADER)
 
     # AriaDB
     if not info.have_threadpool:
-        option.format_print(u"ThreadPool stat is disabled.", style=u"info")
+        option.format_print(u"ThreadPool stat is disabled.", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
-    option.format_print(u"ThreadPool stat is enabled.", style=u"info")
-    option.format_print(f"Thread Pool size: {info.thread_pool_size} thread(s)", style=u"info")
+    option.format_print(u"ThreadPool stat is enabled.", style=tuner.Print.INFO)
+    option.format_print(f"Thread Pool size: {info.thread_pool_size} thread(s)", style=tuner.Print.INFO)
 
     versions: typ.Sequence[str] = (
         u"mariadb",
         u"percona"
     )
     if any(version in info.version.lower() for version in versions):
-        option.format_print(f"Using default value is good enough for your version ({info.version})", style=u"info")
+        option.format_print(f"Using default value is good enough for your version ({info.version})", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
     if info.have_innodb:
         if info.thread_pool_size < 16 or info.thread_pool_size > 36:
-            option.format_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine.", style=u"bad")
+            option.format_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine.", style=tuner.Print.BAD)
             recommendations.append(
                 f"Thread Pool size for InnoDB usage ({info.thread_pool_size})"
             )
@@ -1633,11 +1677,11 @@ def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[t
                 u"thread_pool_size between 16 and 36 for InnoDB usage"
             )
         else:
-            option.format_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine", style=u"good")
+            option.format_print(u"thread_pool_size between 16 and 36 when using InnoDB storage engine", style=tuner.Print.GOOD)
 
     if info.have_myisam:
         if info.thread_pool_size < 4 or info.thread_pool_size > 8:
-            option.format_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine.", style=u"bad")
+            option.format_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine.", style=tuner.Print.BAD)
             recommendations.append(
                 f"Thread Pool size for MyISAM usage ({info.thread_pool_size})"
             )
@@ -1645,7 +1689,7 @@ def mariadb_threadpool(option: tuner.Option, info: tuner.Info) -> typ.Sequence[t
                 u"thread_pool_size between 4 and 8 for MyISAM usage"
             )
         else:
-            option.format_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine", style=u"good")
+            option.format_print(u"thread_pool_size between 4 and 8 when using MyISAM storage engine", style=tuner.Print.GOOD)
 
     return recommendations, adjusted_vars
 
@@ -1718,10 +1762,10 @@ def mariadb_ariadb(
 
     # AriaDB
     if not info.have_ariadb:
-        option.format_print(u"AriaDB is disabled.", style=u"info")
+        option.format_print(u"AriaDB is disabled.", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
-    option.format_print(u"AriaDB is enabled.", style=u"info")
+    option.format_print(u"AriaDB is enabled.", style=tuner.Print.INFO)
 
     # Aria pagecache
     if calc.total_ariadb_indexes == 0 and option.do_remote:
@@ -1729,7 +1773,7 @@ def mariadb_ariadb(
             u"Unable to calculate AriaDB indexes on remote MySQL server < 5.0.0"
         )
     elif calc.total_ariadb_indexes == 0:
-        option.format_print(u"None of your AriaDB tables are indexed - add indexes immediately", style=u"bad")
+        option.format_print(u"None of your AriaDB tables are indexed - add indexes immediately", style=tuner.Print.BAD)
     else:
         ariadb_pagecache_size_message: str = (
             u"AriaDB pagecache size / total AriaDB indexes: "
@@ -1737,12 +1781,12 @@ def mariadb_ariadb(
             f"{util.bytes_to_string(calc.total_ariadb_indexes)}"
         )
         if info.ariadb_pagecache_buffer_size < calc.total_ariadb_indexes and calc.pct_ariadb_keys_from_memory < 95:
-            option.format_print(ariadb_pagecache_size_message, style=u"bad")
+            option.format_print(ariadb_pagecache_size_message, style=tuner.Print.BAD)
             adjusted_vars.append(
                 f"ariadb_pagecache_buffer_size (> {util.bytes_to_string(calc.total_ariadb_indexes)})"
             )
         else:
-            option.format_print(ariadb_pagecache_size_message, style=u"good")
+            option.format_print(ariadb_pagecache_size_message, style=tuner.Print.GOOD)
 
         if stat.ariadb_pagecache_read_requests > 0:
             ariadb_pagecache_read_message: str = (
@@ -1751,9 +1795,9 @@ def mariadb_ariadb(
                 f"{util.bytes_to_string(stat.ariadb_pagecache_read_requests)} reads)"
             )
             if calc.pct_ariadb_keys_from_memory < 95:
-                option.format_print(ariadb_pagecache_read_message, style=u"bad")
+                option.format_print(ariadb_pagecache_read_message, style=tuner.Print.BAD)
             else:
-                option.format_print(ariadb_pagecache_read_message, style=u"good")
+                option.format_print(ariadb_pagecache_read_message, style=tuner.Print.GOOD)
 
     return recommendations, adjusted_vars
 
@@ -1765,14 +1809,14 @@ def mariadb_tokudb(option: tuner.Option, info: tuner.Info) -> None:
     :param tuner.Info info:
     :return:
     """
-    option.format_print(u"TokuDB Metrics", style=u"subheader")
+    option.format_print(u"TokuDB Metrics", style=tuner.Print.SUBHEADER)
 
     # Toku DB
     if not info.have_tokudb:
-        option.format_print(u"TokuDB is disabled.", style=u"info")
+        option.format_print(u"TokuDB is disabled.", style=tuner.Print.INFO)
         return
 
-    option.format_print(u"TokuDB is enabled.", style=u"info")
+    option.format_print(u"TokuDB is enabled.", style=tuner.Print.INFO)
 
 
 def mariadb_xtradb(option: tuner.Option, info: tuner.Info) -> None:
@@ -1782,14 +1826,14 @@ def mariadb_xtradb(option: tuner.Option, info: tuner.Info) -> None:
     :param tuner.Info info:
     :return:
     """
-    option.format_print(u"XtraDB Metrics", style=u"subheader")
+    option.format_print(u"XtraDB Metrics", style=tuner.Print.SUBHEADER)
 
     # Xtra DB
     if not info.have_xtradb:
-        option.format_print(u"XtraDB is disabled.", style=u"info")
+        option.format_print(u"XtraDB is disabled.", style=tuner.Print.INFO)
         return
 
-    option.format_print(u"XtraDB is enabled.", style=u"info")
+    option.format_print(u"XtraDB is enabled.", style=tuner.Print.INFO)
 
 
 def mariadb_rocksdb(option: tuner.Option, info: tuner.Info) -> None:
@@ -1799,14 +1843,14 @@ def mariadb_rocksdb(option: tuner.Option, info: tuner.Info) -> None:
     :param tuner.Info info:
     :return:
     """
-    option.format_print(u"RocksDB Metrics", style=u"subheader")
+    option.format_print(u"RocksDB Metrics", style=tuner.Print.SUBHEADER)
 
     # Rocks DB
     if not info.have_rocksdb:
-        option.format_print(u"RocksDB is disabled.", style=u"info")
+        option.format_print(u"RocksDB is disabled.", style=tuner.Print.INFO)
         return
 
-    option.format_print(u"RocksDB is enabled.", style=u"info")
+    option.format_print(u"RocksDB is enabled.", style=tuner.Print.INFO)
 
 
 def mariadb_spider(option: tuner.Option, info: tuner.Info) -> None:
@@ -1816,14 +1860,14 @@ def mariadb_spider(option: tuner.Option, info: tuner.Info) -> None:
     :param tuner.Info info:
     :return:
     """
-    option.format_print(u"Spider Metrics", style=u"subheader")
+    option.format_print(u"Spider Metrics", style=tuner.Print.SUBHEADER)
 
     # Toku DB
     if not info.have_spider:
-        option.format_print(u"Spider is disabled.", style=u"info")
+        option.format_print(u"Spider is disabled.", style=tuner.Print.INFO)
         return
 
-    option.format_print(u"Spider is enabled.", style=u"info")
+    option.format_print(u"Spider is enabled.", style=tuner.Print.INFO)
 
 
 def mariadb_connect(option: tuner.Option, info: tuner.Info) -> None:
@@ -1833,14 +1877,14 @@ def mariadb_connect(option: tuner.Option, info: tuner.Info) -> None:
     :param tuner.Info info:
     :return:
     """
-    option.format_print(u"Connect Metrics", style=u"subheader")
+    option.format_print(u"Connect Metrics", style=tuner.Print.SUBHEADER)
 
     # Toku DB
     if not info.have_connect:
-        option.format_print(u"Connect is disabled.", style=u"info")
+        option.format_print(u"Connect is disabled.", style=tuner.Print.INFO)
         return
 
-    option.format_print(u"Connect is enabled.", style=u"info")
+    option.format_print(u"Connect is enabled.", style=tuner.Print.INFO)
 
 
 def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
@@ -1859,7 +1903,7 @@ def wsrep_options(option: tuner.Option, info: tuner.Info) -> typ.Sequence[str]:
         if wsrep.strip()
     ]
 
-    option.format_print(f"{galera_options}", style=u"debug")
+    option.format_print(f"{galera_options}", style=tuner.Print.DEBUG)
 
     return galera_options
 
@@ -1917,16 +1961,16 @@ def mariadb_galera(
     adjusted_vars: typ.List[str] = []
     results: typ.DefaultDict = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
-    option.format_print(u"Galera Metrics", style=u"subheader")
+    option.format_print(u"Galera Metrics", style=tuner.Print.SUBHEADER)
 
     # Galera Cluster
     if not info.have_galera:
-        option.format_print(u"Galera is disabled.", style=u"info")
+        option.format_print(u"Galera is disabled.", style=tuner.Print.INFO)
         return recommendations, adjusted_vars, results
 
-    option.format_print(u"Galera is enabled.", style=u"info")
+    option.format_print(u"Galera is enabled.", style=tuner.Print.INFO)
 
-    option.format_print(u"Galera variables:", style=u"debug")
+    option.format_print(u"Galera variables:", style=tuner.Print.DEBUG)
     galera_infos: typ.Sequence[typ.Tuple[str, typ.Any]] = [
         (galera_key, galera_value)
         for galera_key, galera_value in util.class_variables(info)
@@ -1934,50 +1978,50 @@ def mariadb_galera(
         and galera_key != u"wsrep_provider_options"
     ]
     for galera_info, galera_value in galera_infos:
-        option.format_print(f"\t{galera_info} = {galera_value}", style=u"debug")
+        option.format_print(f"\t{galera_info} = {galera_value}", style=tuner.Print.DEBUG)
         results[u"Galera"][u"Info"][galera_info]: typ.Any = galera_value
 
-    option.format_print(u"Galera wsrep provider options:", style=u"debug")
+    option.format_print(u"Galera wsrep provider options:", style=tuner.Print.DEBUG)
     galera_options: typ.Sequence[str] = wsrep_options(option, info)
     results[u"Galera"][u"wsrep options"]: typ.Sequence[str] = galera_options
     for galera_option in galera_options:
-        option.format_print(f"\t{galera_option.strip()}", style=u"debug")
+        option.format_print(f"\t{galera_option.strip()}", style=tuner.Print.DEBUG)
 
-    option.format_print(u"Galera status:", style=u"debug")
+    option.format_print(u"Galera status:", style=tuner.Print.DEBUG)
     galera_stats: typ.Sequence[typ.Tuple[str, typ.Any]] = [
         (galera_key, galera_value)
         for galera_key, galera_value in util.class_variables(stat)
         if u"wsrep" in galera_key
     ]
     for galera_stat, galera_value in galera_stats:
-        option.format_print(f"\t{galera_stat} = {galera_value}", style=u"debug")
+        option.format_print(f"\t{galera_stat} = {galera_value}", style=tuner.Print.DEBUG)
         results[u"Galera"][u"Status"][galera_stat]: typ.Any = galera_value
 
     option.format_print(
         f"GCache is using {util.bytes_to_string(wsrep_option(option, info, key=u'gcache.mem_size'))}",
-        style=u"info"
+        style=tuner.Print.INFO
     )
 
     wsrep_slave_threads: int = wsrep_option(option, info, key=u"wsrep_slave_threads")
     cpu_count: int = psu.cpu_count()
     if wsrep_slave_threads < 3 * cpu_count or wsrep_slave_threads > 4 * cpu_count:
-        option.format_print(u"wsrep_slave_threads is not between 3 to 4 times the number of CPU(s)", style=u"bad")
+        option.format_print(u"wsrep_slave_threads is not between 3 to 4 times the number of CPU(s)", style=tuner.Print.BAD)
         adjusted_vars.append(u"wsrep_slave_threads = 4 * # of Core CPU")
     else:
-        option.format_print(u"wsrep_slave_threads is between 3 to 4 times the number of CPU(s)", style=u"good")
+        option.format_print(u"wsrep_slave_threads is between 3 to 4 times the number of CPU(s)", style=tuner.Print.GOOD)
 
     gcs_limit: int = wsrep_option(option, info, key=u"gcs.limit")
     if gcs_limit != 5 * wsrep_slave_threads:
-        option.format_print(u"gcs.limit should be equal to 5 * wsrep_slave_threads", style=u"bad")
+        option.format_print(u"gcs.limit should be equal to 5 * wsrep_slave_threads", style=tuner.Print.BAD)
         adjusted_vars.append(u"wsrep_slave_threads = 5 * # wsrep_slave_threads")
     else:
-        option.format_print(u"gcs.limit is equal to 5 * wsrep_slave_threads", style=u"good")
+        option.format_print(u"gcs.limit is equal to 5 * wsrep_slave_threads", style=tuner.Print.GOOD)
 
     wsrep_flow_control_paused: float = wsrep_option(option, info, key=u"wsrep_flow_control_paused")
     if wsrep_flow_control_paused > 0.02:
-        option.format_print(u"Flow control fraction > 0.02", style=u"bad")
+        option.format_print(u"Flow control fraction > 0.02", style=tuner.Print.BAD)
     else:
-        option.format_print(u"Flow control fraction seems to be OK", style=u"good")
+        option.format_print(u"Flow control fraction seems to be OK", style=tuner.Print.GOOD)
 
     non_primary_key_table_query: sqla.Text = info.query_from_file(u"non_primary-key-table-query.sql")
     result = sess.execute(non_primary_key_table_query)
@@ -1989,12 +2033,12 @@ def mariadb_galera(
 
     results[u"Tables without a Primary Key"]: typ.Sequence[str] = []
     if len(non_primary_key_tables) > 0:
-        option.format_print(u"Following table(s) don't have primary keys:", style=u"bad")
+        option.format_print(u"Following table(s) don't have primary keys:", style=tuner.Print.BAD)
         for non_primary_key_table in non_primary_key_tables:
-            option.format_print(f"\t{non_primary_key_table}", style=u"bad")
+            option.format_print(f"\t{non_primary_key_table}", style=tuner.Print.BAD)
             results[u"Tables without a Primary Key"].append(non_primary_key_table)
     else:
-        option.format_print(u"All tables have a primary key", style=u"good")
+        option.format_print(u"All tables have a primary key", style=tuner.Print.GOOD)
 
     non_innodb_table_query: sqla.Text = info.query_from_file(u"non_innodb-table-query.sql")
     result = sess.execute(non_innodb_table_query)
@@ -2005,42 +2049,42 @@ def mariadb_galera(
     ]
 
     if len(non_innodb_tables) > 0:
-        option.format_print(u"Following table(s) are not InnoDB table(s):", style=u"bad")
+        option.format_print(u"Following table(s) are not InnoDB table(s):", style=tuner.Print.BAD)
         for non_innodb_table in non_innodb_tables:
-            option.format_print(f"\t{non_innodb_table}", style=u"bad")
+            option.format_print(f"\t{non_innodb_table}", style=tuner.Print.BAD)
             recommendations.append(u"Ensure that all tables are InnoDB tables for Galera replication")
     else:
-        option.format_print(u"All tables are InnoDB tables", style=u"good")
+        option.format_print(u"All tables are InnoDB tables", style=tuner.Print.GOOD)
 
     if info.binlog_format != u"ROW":
-        option.format_print(u"Binlog format should be in ROW mode.", style=u"bad")
+        option.format_print(u"Binlog format should be in ROW mode.", style=tuner.Print.BAD)
         adjusted_vars.append(u"binlog_format = ROW")
     else:
-        option.format_print(u"Binlog format is in ROW mode.", style=u"bad")
+        option.format_print(u"Binlog format is in ROW mode.", style=tuner.Print.BAD)
 
     if info.innodb_flush_log_at_trx_commit:
-        option.format_print(u"InnoDB flush log at each commit should be disabled.", style=u"bad")
+        option.format_print(u"InnoDB flush log at each commit should be disabled.", style=tuner.Print.BAD)
         adjusted_vars.append(u"innodb_flush_log_at_trx_commit = False")
     else:
-        option.format_print(u"InnoDB flush log at each commit is disabled", style=u"good")
+        option.format_print(u"InnoDB flush log at each commit is disabled", style=tuner.Print.GOOD)
 
-    option.format_print(f"Read consistency mode: {info.wsrep_causal_reads}", style=u"info")
+    option.format_print(f"Read consistency mode: {info.wsrep_causal_reads}", style=tuner.Print.INFO)
     if info.wsrep_cluster_name and info.wsrep_on:
-        option.format_print(u"Galera WsREP is enabled.", style=u"good")
+        option.format_print(u"Galera WsREP is enabled.", style=tuner.Print.GOOD)
         if info.wsrep_cluster_address.strip():
-            option.format_print(f"Galera Cluster address is defined: {info.wsrep_cluster_address}", style=u"good")
+            option.format_print(f"Galera Cluster address is defined: {info.wsrep_cluster_address}", style=tuner.Print.GOOD)
 
             nodes: typ.Sequence[str] = info.wsrep_cluster_address.split(u",")
-            option.format_print(f"There are {len(nodes)} nodes in wsrep_cluster_size", style=u"info")
+            option.format_print(f"There are {len(nodes)} nodes in wsrep_cluster_size", style=tuner.Print.INFO)
 
             node_amount: int = stat.wsrep_cluster_size
             if node_amount in (3, 5):
-                option.format_print(f"There are {node_amount} nodes in wsrep_cluster_size", style=u"good")
+                option.format_print(f"There are {node_amount} nodes in wsrep_cluster_size", style=tuner.Print.GOOD)
             else:
                 option.format_print((
                     f"There are {node_amount} nodes in wsrep_cluster_size. "
                     u"Prefer 3 or 5 node architecture"
-                ), style=u"bad")
+                ), style=tuner.Print.BAD)
                 recommendations.append(u"Prefer 3 or 5 node architecture")
 
             # wsrep_cluster_address doesn't include garbd nodes
@@ -2048,78 +2092,78 @@ def mariadb_galera(
                 option.format_print((
                     u"All cluster nodes are not detected. "
                     u"wsrep_cluster_size less then node count in wsrep_cluster_address"
-                ), style=u"bad")
+                ), style=tuner.Print.BAD)
             else:
-                option.format_print(u"All cluster nodes detected.", style=u"good")
+                option.format_print(u"All cluster nodes detected.", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"Galera Cluster address is undefined", style=u"bad")
+            option.format_print(u"Galera Cluster address is undefined", style=tuner.Print.BAD)
             adjusted_vars.append(u"Set up wsrep_cluster_name variable for Galera replication")
 
         if info.wsrep_node_name.strip():
-            option.format_print(f"Galera node name is defined: {info.wsrep_node_name}", style=u"good")
+            option.format_print(f"Galera node name is defined: {info.wsrep_node_name}", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"Galera node name is not defined", style=u"bad")
+            option.format_print(u"Galera node name is not defined", style=tuner.Print.BAD)
             adjusted_vars.append(u"Set up wsrep_node_name variable for Galera replication")
 
         if info.wsrep_notify_cmd.strip():
-            option.format_print(f"Galera notify command is defined: {info.wsrep_notify_cmd}", style=u"good")
+            option.format_print(f"Galera notify command is defined: {info.wsrep_notify_cmd}", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"Galera notify command is not defined", style=u"bad")
+            option.format_print(u"Galera notify command is not defined", style=tuner.Print.BAD)
             adjusted_vars.append(u"Set up wsrep_notify_cmd variable for Galera replication")
 
         if "xtrabackup" in info.wsrep_sst_method.strip():
-            option.format_print(f"Galera SST method is based on xtrabackup", style=u"good")
+            option.format_print(f"Galera SST method is based on xtrabackup", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"Galera node name is not xtrabackup based", style=u"bad")
+            option.format_print(u"Galera node name is not xtrabackup based", style=tuner.Print.BAD)
             adjusted_vars.append(u"Set up parameter wsrep_sst_method variable to xtrabackup based parameter")
 
         if info.wsrep_osu_method == "TOI":
-            option.format_print(u"TOI is the default mode for upgrade.", style=u"good")
+            option.format_print(u"TOI is the default mode for upgrade.", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"Schema upgrades are not replicated automatically.", style=u"bad")
+            option.format_print(u"Schema upgrades are not replicated automatically.", style=tuner.Print.BAD)
             adjusted_vars.append(u"Set wsrep_osu_method = 'TOI'")
 
-        option.format_print(f"Max WsREP message: {util.bytes_to_string(info.wsrep_max_ws_size)}", style=u"info")
+        option.format_print(f"Max WsREP message: {util.bytes_to_string(info.wsrep_max_ws_size)}", style=tuner.Print.INFO)
     else:
-        option.format_print(u"Galera WsREP is disabled.", style=u"bad")
+        option.format_print(u"Galera WsREP is disabled.", style=tuner.Print.BAD)
 
     if stat.wsrep_connected:
-        option.format_print(u"Node is connected", style=u"good")
+        option.format_print(u"Node is connected", style=tuner.Print.GOOD)
     else:
-        option.format_print(u"Node is not connected", style=u"bad")
+        option.format_print(u"Node is not connected", style=tuner.Print.BAD)
 
     if stat.wsrep_ready:
-        option.format_print(u"Node is ready", style=u"good")
+        option.format_print(u"Node is ready", style=tuner.Print.GOOD)
     else:
-        option.format_print(u"Node is not ready", style=u"bad")
+        option.format_print(u"Node is not ready", style=tuner.Print.BAD)
 
-    option.format_print(f"Cluster status: {stat.wsrep_cluster_status}", style=u"info")
+    option.format_print(f"Cluster status: {stat.wsrep_cluster_status}", style=tuner.Print.INFO)
     if stat.wsrep_cluster_status.title() == u"Primary":
-        option.format_print(u"Galera cluster is consistent and ready for operations", style=u"good")
+        option.format_print(u"Galera cluster is consistent and ready for operations", style=tuner.Print.GOOD)
     else:
-        option.format_print(u"Galera cluster is not consistent and ready", style=u"bad")
+        option.format_print(u"Galera cluster is not consistent and ready", style=tuner.Print.BAD)
 
     if stat.wsrep_local_state_uuid == stat.wsrep_cluster_state_uuid:
         option.format_print((
             f"Node and whole cluster at the same level: {stat.wsrep_cluster_state_uuid}"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
-        option.format_print(u"None and whole cluster not at same level", style=u"bad")
-        option.format_print(f"Node    state uuid: {stat.wsrep_local_state_uuid}", style=u"info")
-        option.format_print(f"Cluster state uuid: {stat.wsrep_cluster_state_uuid}", style=u"info")
+        option.format_print(u"None and whole cluster not at same level", style=tuner.Print.BAD)
+        option.format_print(f"Node    state uuid: {stat.wsrep_local_state_uuid}", style=tuner.Print.INFO)
+        option.format_print(f"Cluster state uuid: {stat.wsrep_cluster_state_uuid}", style=tuner.Print.INFO)
 
     if stat.wsrep_local_state_comment.title() == u"Synced":
-        option.format_print(u"Node is synced with whole cluster", style=u"good")
+        option.format_print(u"Node is synced with whole cluster", style=tuner.Print.GOOD)
     else:
-        option.format_print(u"Node is not synced", style=u"bad")
-        option.format_print(f"Node state: {stat.wsrep_local_state_comment}", style=u"info")
+        option.format_print(u"Node is not synced", style=tuner.Print.BAD)
+        option.format_print(f"Node state: {stat.wsrep_local_state_comment}", style=tuner.Print.INFO)
 
     if stat.wsrep_local_cert_failures == 0:
-        option.format_print(u"There are no certification failures detected", style=u"good")
+        option.format_print(u"There are no certification failures detected", style=tuner.Print.GOOD)
     else:
         option.format_print(
             f"There are {stat.wsrep_local_cert_failures} certification failure(s) detected",
-            style=u"bad"
+            style=tuner.Print.BAD
         )
 
     wsrep_galera_stats: typ.Sequence[typ.Tuple[str, typ.Any]] = [
@@ -2129,9 +2173,9 @@ def mariadb_galera(
         or u"galera" in galera_key
     ]
     for wsrep_galera_stat, wsrep_galera_value in wsrep_galera_stats:
-        option.format_print(f"WsRep: {wsrep_galera_stat} = {wsrep_galera_value}", style=u"debug")
+        option.format_print(f"WsRep: {wsrep_galera_stat} = {wsrep_galera_value}", style=tuner.Print.DEBUG)
 
-    option.format_print(",".join(wsrep_options(option, info)), style=u"debug")
+    option.format_print(",".join(wsrep_options(option, info)), style=tuner.Print.DEBUG)
 
     return recommendations, adjusted_vars, results
 
@@ -2156,84 +2200,84 @@ def mysql_innodb(
     adjusted_vars: typ.List[str] = []
     results: typ.DefaultDict = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
-    option.format_print(u"InnoDB Metrics", style=u"subheader")
+    option.format_print(u"InnoDB Metrics", style=tuner.Print.SUBHEADER)
 
     # InnoDB
     if not info.have_innodb:
-        option.format_print(u"InnoDB is disabled.", style=u"info")
+        option.format_print(u"InnoDB is disabled.", style=tuner.Print.INFO)
         if (info.ver_major, info.ver_minor) >= (5, 5):
             option.format_print(
                 u"InnoDB Storage Engine is disabled. InnoDB is the default storage engine",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
 
         return recommendations, adjusted_vars
 
-    option.format_print(u"InnoDB is enabled.", style=u"info")
+    option.format_print(u"InnoDB is enabled.", style=tuner.Print.INFO)
 
     if option.buffers:
-        option.format_print(u"InnoDB Buffers", style=u"info")
+        option.format_print(u"InnoDB Buffers", style=tuner.Print.INFO)
 
         option.format_print(
             f" +-- InnoDB Buffer Pool: {util.bytes_to_string(info.innodb_buffer_pool_size)}",
-            style=u"info"
+            style=tuner.Print.INFO
         )
 
         option.format_print((
             u" +-- InnoDB Buffer Pool Instances:"
             f" {util.bytes_to_string(info.innodb_buffer_pool_instances)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Buffer Pool Chunk Size:"
             f" {util.bytes_to_string(info.innodb_buffer_pool_chunk_size)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Additional Mem Pool:"
             f" {util.bytes_to_string(info.innodb_additional_mem_pool_size)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Log File Size:"
             f" {util.bytes_to_string(info.innodb_log_file_size)}"
             f"({calc.innodb_log_size_pct}% of buffer pool)"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Log Files In Group:"
             f" {util.bytes_to_string(info.innodb_log_files_in_group)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Total Log File Size:"
             f" {util.bytes_to_string(info.innodb_log_files_in_group * info.innodb_log_file_size)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Log Buffer:"
             f" {util.bytes_to_string(info.innodb_log_buffer_size)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Log Buffer Free:"
             f" {util.bytes_to_string(stat.innodb_buffer_pool_pages_free)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         option.format_print((
             u" +-- InnoDB Log Buffer Used:"
             f" {util.bytes_to_string(stat.innodb_buffer_pool_pages_total)}"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
     option.format_print((
         u" +-- InnoDB Thread Concurrency:"
         f" {util.bytes_to_string(info.innodb_thread_concurrency)}"
-    ), style=u"info")
+    ), style=tuner.Print.INFO)
 
     if info.innodb_file_per_table:
-        option.format_print(u"InnoDB file per table is activated", style=u"good")
+        option.format_print(u"InnoDB file per table is activated", style=tuner.Print.GOOD)
     else:
-        option.format_print(u"InnoDB file per table is not activated", style=u"bad")
+        option.format_print(u"InnoDB file per table is not activated", style=tuner.Print.BAD)
         adjusted_vars.append(u"innodb_file_per_table=ON")
 
     # TODO figure out engine_stat
@@ -2243,13 +2287,13 @@ def mysql_innodb(
             u"InnoDB Buffer Pool / Data size: "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
             f"{util.bytes_to_string(engine_stat.innodb)}"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             u"InnoDB Buffer Pool / Data size: "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
             f"{util.bytes_to_string(engine_stat.innodb)}"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
         adjusted_vars.append(
             f"innodb_buffer_pool_size (>= {util.bytes_to_string(engine_stat.innodb)}) if possible."
         )
@@ -2262,7 +2306,7 @@ def mysql_innodb(
             f"{info.innodb_log_files_in_group} / "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)} "
             u"should be equal 25%"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             u"InnoDB Log file size / InnoDB Buffer pool size "
@@ -2271,7 +2315,7 @@ def mysql_innodb(
             f"{info.innodb_log_files_in_group} / "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)} "
             u"should be equal 25%"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
         adjusted_vars.append((
             u"innodb_log_file_size * innodb_log_files_in_group should be equal to 25% of buffer pool size "
             f"(={util.bytes_to_string(int(info.innodb_buffer_pool_size * info.innodb_log_files_in_group / 4))}) "
@@ -2281,7 +2325,7 @@ def mysql_innodb(
     # InnoDB Buffer Pool Instances (MySQL 5.6.6+)
     # Bad Value if > 64
     if info.innodb_buffer_pool_instances > 64:
-        option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=u"bad")
+        option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=tuner.Print.BAD)
         adjusted_vars.append(u"innodb_buffer_pool_instances (<= 64)")
 
     # InnoDB Buffer Pool Size > 1 GB
@@ -2291,35 +2335,35 @@ def mysql_innodb(
         max_innodb_buffer_pool_instances: int = min(int(info.innodb_buffer_pool_size / (1024 ** 3)), 64)
 
         if info.innodb_buffer_pool_instances == max_innodb_buffer_pool_instances:
-            option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=u"good")
+            option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=tuner.Print.GOOD)
         else:
-            option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=u"bad")
+            option.format_print(f"InnoDB Buffer pool instances: {info.innodb_buffer_pool_instances}", style=tuner.Print.BAD)
             adjusted_vars.append(f"innodb_buffer_pool_instances (= {max_innodb_buffer_pool_instances})")
     else:
         if info.innodb_buffer_pool_instances == 1:
-            option.format_print(f"InnoDB Buffer pool instances {info.innodb_buffer_pool_instances}", style=u"good")
+            option.format_print(f"InnoDB Buffer pool instances {info.innodb_buffer_pool_instances}", style=tuner.Print.GOOD)
         else:
-            option.format_print(u"InnoDB Buffer pool <= 1 GB and innodb_buffer_pool_instances != 1", style=u"bad")
+            option.format_print(u"InnoDB Buffer pool <= 1 GB and innodb_buffer_pool_instances != 1", style=tuner.Print.BAD)
             adjusted_vars.append(u"innodb_buffer_pool_instances (== 1)")
 
     # InnoDB Used Buffer Pool Size vs CHUNK size
     if info.innodb_buffer_pool_chunk_size:
-        option.format_print(u"InnoDB Buffer Pool Chunk Size not used or defined in your version", style=u"info")
+        option.format_print(u"InnoDB Buffer Pool Chunk Size not used or defined in your version", style=tuner.Print.INFO)
     else:
         option.format_print((
             u"Number of InnoDB Buffer Pool Chunks: "
             f"{info.innodb_buffer_pool_size} / {info.innodb_buffer_pool_chunk_size} for "
             f"{info.innodb_buffer_pool_instances} Buffer Pool Instance(s)"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         if info.innodb_buffer_pool_size % (info.innodb_buffer_pool_chunk_size * info.innodb_buffer_pool_instances) == 0:
             option.format_print((
                 u"innodb_buffer_pool_size aligned with innodb_buffer_pool_chunk_size & innodb_buffer_pool_instances"
-            ), style=u"good")
+            ), style=tuner.Print.GOOD)
         else:
             option.format_print((
                 u"innodb_buffer_pool_size not aligned with innodb_buffer_pool_chunk_size & innodb_buffer_pool_instances"
-            ), style=u"bad")
+            ), style=tuner.Print.BAD)
             adjusted_vars.append((
                 u"innodb_buffer_pool_size must always be equal to "
                 u"or a multiple of innodb_buffer_pool_chunk_size * innodb_buffer_pool_instances"
@@ -2331,13 +2375,13 @@ def mysql_innodb(
             f"{calc.pct_read_efficiency}% "
             f"({stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads} hits / "
             f"{stat.innodb_buffer_pool_read_requests} total)"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             f"{calc.pct_read_efficiency}% "
             f"({stat.innodb_buffer_pool_read_requests - stat.innodb_buffer_pool_reads} hits / "
             f"{stat.innodb_buffer_pool_read_requests} total)"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
 
     # InnoDB Write Efficiency
     if calc.pct_write_efficiency > 90:
@@ -2345,13 +2389,13 @@ def mysql_innodb(
             f"{calc.pct_read_efficiency}% "
             f"({stat.innodb_log_write_requests - stat.innodb_log_writes} hits / "
             f"{stat.innodb_log_write_requests} total)"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             f"{calc.pct_read_efficiency}% "
             f"({stat.innodb_log_write_requests - stat.innodb_log_writes} hits / "
             f"{stat.innodb_log_write_requests} total)"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
 
     # InnoDB Log Waits
     if calc.pct_read_efficiency > 90:
@@ -2360,14 +2404,14 @@ def mysql_innodb(
             f"{util.percentage(stat.innodb_log_waits, stat.innodb_log_writes)}% "
             f"({stat.innodb_log_waits} waits / "
             f"{stat.innodb_log_writes} writes)"
-        ), style=u"good")
+        ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             u"InnoDB Log Waits:"
             f"{util.percentage(stat.innodb_log_waits, stat.innodb_log_writes)}% "
             f"({stat.innodb_log_waits} waits / "
             f"{stat.innodb_log_writes} writes)"
-        ), style=u"bad")
+        ), style=tuner.Print.BAD)
         adjusted_vars.append(
             f"innodb_log_buffer_size (>= {util.bytes_to_string(info.innodb_log_buffer_size)})"
         )
@@ -2402,9 +2446,9 @@ def mysql_databases(
     if not option.db_stat:
         return recommendations, adjusted_vars, results
 
-    option.format_print(u"Database Metrics", style=u"subheader")
+    option.format_print(u"Database Metrics", style=tuner.Print.SUBHEADER)
     if (info.ver_major, info.ver_minor) >= (5, 5):
-        option.format_print(u"Skip Database metrics from information schema missing in this version", style=u"info")
+        option.format_print(u"Skip Database metrics from information schema missing in this version", style=tuner.Print.INFO)
         return recommendations, adjusted_vars
 
     database_query: sqla.Text = info.query_from_file(u"all-databases.sql")
@@ -2415,7 +2459,7 @@ def mysql_databases(
         for database in result.fetchall()
     ]
 
-    option.format_print(f"There are {len(databases)} Databases", style=u"info")
+    option.format_print(f"There are {len(databases)} Databases", style=tuner.Print.INFO)
 
     databases_info_query: sqla.Text = info.query_from_file(u"databases-info-query.sql")
     result = sess.execute(databases_info_query)
@@ -2424,17 +2468,17 @@ def mysql_databases(
         DatabasesInfo(*databases_info)
         for databases_info in result.fetchall()
     ][0]
-    option.format_print(u"All Databases:", style=u"info")
-    option.format_print(f" +-- TABLE      : {databases_info.TABLE_COUNT}", style=u"info")
-    option.format_print(f" +-- ROWS       : {databases_info.ROW_AMOUNT}", style=u"info")
+    option.format_print(u"All Databases:", style=tuner.Print.INFO)
+    option.format_print(f" +-- TABLE      : {databases_info.TABLE_COUNT}", style=tuner.Print.INFO)
+    option.format_print(f" +-- ROWS       : {databases_info.ROW_AMOUNT}", style=tuner.Print.INFO)
     option.format_print((
         f" +-- DATA       : {util.bytes_to_string(databases_info.DATA_SIZE)} "
         f"({util.percentage(databases_info.DATA_SIZE, databases_info.TOTAL_SIZE)}%)"
-    ), style=u"info")
+    ), style=tuner.Print.INFO)
     option.format_print((
         f" +-- INDEX      : {util.bytes_to_string(databases_info.INDEX_SIZE)} "
         f"({util.percentage(databases_info.INDEX_SIZE, databases_info.TOTAL_SIZE)}%)"
-    ), style=u"info")
+    ), style=tuner.Print.INFO)
 
     table_collation_query: sqla.Text = info.query_from_file(u"all-table-collations-query.sql")
     result = sess.execute(table_collation_query)
@@ -2450,7 +2494,7 @@ def mysql_databases(
     option.format_print((
         f" +-- COLLATION  : {databases_info.COLLATION_COUNT} "
         f"({all_table_collations})"
-    ), style=u"info")
+    ), style=tuner.Print.INFO)
 
     table_engine_query: sqla.Text = info.query_from_file(u"all-table-engines-query.sql")
     result = sess.execute(table_engine_query)
@@ -2466,7 +2510,7 @@ def mysql_databases(
     option.format_print((
         f" +-- ENGINE     : {databases_info.ENGINE_COUNT} "
         f"({all_table_engines})"
-    ), style=u"info")
+    ), style=tuner.Print.INFO)
 
     results[u"Databases"]: typ.Dict = {
         u"Rows": databases_info.ROW_AMOUNT,
@@ -2488,17 +2532,17 @@ def mysql_databases(
             DatabaseInfo(*database_info)
             for database_info in result.fetchall()
         ][0]
-        option.format_print(f"Database: {database}", style=u"info")
-        option.format_print(f" +-- TABLE      : {database_info.TABLE_COUNT}", style=u"info")
-        option.format_print(f" +-- ROWS       : {database_info.ROW_AMOUNT}", style=u"info")
+        option.format_print(f"Database: {database}", style=tuner.Print.INFO)
+        option.format_print(f" +-- TABLE      : {database_info.TABLE_COUNT}", style=tuner.Print.INFO)
+        option.format_print(f" +-- ROWS       : {database_info.ROW_AMOUNT}", style=tuner.Print.INFO)
         option.format_print((
             f" +-- DATA       : {util.bytes_to_string(database_info.DATA_SIZE)} "
             f"({util.percentage(database_info.DATA_SIZE, database_info.TOTAL_SIZE)}%)"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
         option.format_print((
             f" +-- INDEX      : {util.bytes_to_string(database_info.INDEX_SIZE)} "
             f"({util.percentage(database_info.INDEX_SIZE, database_info.TOTAL_SIZE)}%)"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         table_collation_query: sqla.Text = info.query_from_file(u"table-collations-query.sql")
         result = sess.execute(table_collation_query, TABLE_SCHEMA=database)
@@ -2514,7 +2558,7 @@ def mysql_databases(
         option.format_print((
             f" +-- COLLATION  : {database_info.COLLATION_COUNT} "
             f"({all_table_collations})"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         table_engine_query: sqla.Text = info.query_from_file(u"table-engines-query.sql")
         result = sess.execute(table_engine_query, TABLE_SCHEMA=database)
@@ -2530,12 +2574,12 @@ def mysql_databases(
         option.format_print((
             f" +-- ENGINE     : {database_info.ENGINE_COUNT} "
             f"({all_table_engines})"
-        ), style=u"info")
+        ), style=tuner.Print.INFO)
 
         if database_info.DATA_LENGTH < database_info.INDEX_LENGTH:
-            option.format_print(f"Index size is larger than data size for {database}", style=u"bad")
+            option.format_print(f"Index size is larger than data size for {database}", style=tuner.Print.BAD)
         if database_info.ENGINE_COUNT > 1:
-            option.format_print(f"There are {database_info.ENGINE_COUNT} storage engines. Be careful.", style=u"bad")
+            option.format_print(f"There are {database_info.ENGINE_COUNT} storage engines. Be careful.", style=tuner.Print.BAD)
 
         results[u"Databases"][database]: typ.Dict = {
             u"Rows": database_info.ROW_AMOUNT,
@@ -2551,21 +2595,21 @@ def mysql_databases(
         if database_info.COLLATION_COUNT > 1:
             option.format_print(
                 f"{database_info.COLLATION_COUNT} different collations for database {database}",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
             recommendations.append(
                 f"Check all table collations are identical for all tables in {database} database"
             )
         else:
-            option.format_print(f"{database_info.COLLATION_COUNT} collation for database {database}", style=u"good")
+            option.format_print(f"{database_info.COLLATION_COUNT} collation for database {database}", style=tuner.Print.GOOD)
 
         if database_info.ENGINE_COUNT > 1:
-            option.format_print(f"{database_info.ENGINE_COUNT} different engines for database {database}", style=u"bad")
+            option.format_print(f"{database_info.ENGINE_COUNT} different engines for database {database}", style=tuner.Print.BAD)
             recommendations.append(
                 f"Check all table engines are identical for all tables in {database} database"
             )
         else:
-            option.format_print(f"{database_info.ENGINE_COUNT} engine for database {database}", style=u"good")
+            option.format_print(f"{database_info.ENGINE_COUNT} engine for database {database}", style=tuner.Print.GOOD)
 
         character_set_query: sqla.Text = info.query_from_file(u"character-set-query.sql")
         result = sess.execute(character_set_query, TABLE_SCHEMA=database)
@@ -2579,13 +2623,13 @@ def mysql_databases(
             for character_set in character_sets
         )
 
-        option.format_print(f"Character sets for {database} database table column: {all_character_sets}", style=u"info")
+        option.format_print(f"Character sets for {database} database table column: {all_character_sets}", style=tuner.Print.INFO)
 
         character_set_count: int = len(all_character_sets)
         if character_set_count > 1:
             option.format_print(
                 f"{character_set_count} table columns have several character sets defined for all text like columns",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
             recommendations.append(
                 f"Limit character sets for column to one character set if possible for {database} database"
@@ -2593,7 +2637,7 @@ def mysql_databases(
         else:
             option.format_print(
                 f"{character_set_count} table columns have several character sets defined for all text like columns",
-                style=u"good"
+                style=tuner.Print.GOOD
             )
 
         collation_query: sqla.Text = info.query_from_file(u"collation-query.sql")
@@ -2608,13 +2652,13 @@ def mysql_databases(
             for collation in collations
         )
 
-        option.format_print(f"Collations for {database} database table column: {all_collations}", style=u"info")
+        option.format_print(f"Collations for {database} database table column: {all_collations}", style=tuner.Print.INFO)
 
         collation_count: int = len(all_collations)
         if collation_count > 1:
             option.format_print(
                 f"{collation_count} table columns have several collations defined for all text like columns",
-                style=u"bad"
+                style=tuner.Print.BAD
             )
             recommendations.append(
                 f"Limit collations for column to one collation if possible for {database} database"
@@ -2622,7 +2666,7 @@ def mysql_databases(
         else:
             option.format_print(
                 f"{collation_count} table columns have several collations defined for all text like columns",
-                style=u"good"
+                style=tuner.Print.GOOD
             )
 
     return recommendations, adjusted_vars, results
@@ -2639,17 +2683,19 @@ def mysql_indexes(
     :param tuner.Option option:
     :param tuner.Info info:
     :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
-        list of recommendations and list of adjusted variables, and results    """
+        list of recommendations and list of adjusted variables, and results
+    """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     if not option.idx_stat:
-        return recommendations, adjusted_vars
+        return recommendations, adjusted_vars, results
 
-    option.format_print(u"Indexes Metrics", style=u"subheader")
+    option.format_print(u"Indexes Metrics", style=tuner.Print.SUBHEADER)
     if (info.ver_major, info.ver_minor, info.ver_minor) < (5, 5):
-        option.format_print(u"Skip Index metrics from information schema missing in this version", style=u"info")
-        return recommendations, adjusted_vars
+        option.format_print(u"Skip Index metrics from information schema missing in this version", style=tuner.Print.INFO)
+        return recommendations, adjusted_vars, results
 
     worst_indexes_query: sqla.Text = info.query_from_file(u"worst-indexes-query.sql")
     result = sess.execute(worst_indexes_query)
@@ -2658,26 +2704,34 @@ def mysql_indexes(
         WorstIndex(*worst_index)
         for worst_index in result.fetchall()
     ]
-    option.format_print(u"Worst Selectivity Indexes", style=u"info")
+    option.format_print(u"Worst Selectivity Indexes", style=tuner.Print.INFO)
     for worst_index in worst_indexes:
-        option.format_print(f"{worst_index}", style=u"debug")
-        option.format_print(f"Index: {worst_index.INDEX}", style=u"info")
+        option.format_print(f"{worst_index}", style=tuner.Print.DEBUG)
+        option.format_print(f"Index: {worst_index.INDEX}", style=tuner.Print.INFO)
 
-        option.format_print(f" +-- COLUMN      : {worst_index.SCHEMA_TABLE}", style=u"info")
-        option.format_print(f" +-- SEQ_NUM     : {worst_index.SEQ_IN_INDEX} sequence(s)", style=u"info")
-        option.format_print(f" +-- MAX_COLS    : {worst_index.MAX_COLUMNS} column(s)", style=u"info")
-        option.format_print(f" +-- CARDINALITY : {worst_index.CARDINALITY} distinct values", style=u"info")
-        option.format_print(f" +-- ROW_AMOUNT  : {worst_index.ROW_AMOUNT} rows", style=u"info")
-        option.format_print(f" +-- INDEX_TYPE  : {worst_index.INDEX_TYPE}", style=u"info")
-        option.format_print(f" +-- SELECTIVITY : {worst_index.SELECTIVITY}%", style=u"info")
+        option.format_print(f" +-- COLUMN      : {worst_index.SCHEMA_TABLE}", style=tuner.Print.INFO)
+        option.format_print(f" +-- SEQ_NUM     : {worst_index.SEQ_IN_INDEX} sequence(s)", style=tuner.Print.INFO)
+        option.format_print(f" +-- MAX_COLS    : {worst_index.MAX_COLUMNS} column(s)", style=tuner.Print.INFO)
+        option.format_print(f" +-- CARDINALITY : {worst_index.CARDINALITY} distinct values", style=tuner.Print.INFO)
+        option.format_print(f" +-- ROW_AMOUNT  : {worst_index.ROW_AMOUNT} rows", style=tuner.Print.INFO)
+        option.format_print(f" +-- INDEX_TYPE  : {worst_index.INDEX_TYPE}", style=tuner.Print.INFO)
+        option.format_print(f" +-- SELECTIVITY : {worst_index.SELECTIVITY}%", style=tuner.Print.INFO)
 
-        # TODO fill result object
+        results[u"Indexes"][worst_index.INDEX]: typ.Dict = {
+            u"Column": worst_index.SCHEMA_TABLE,
+            u"Sequence Number": worst_index.SEQ_IN_INDEX,
+            u"Number of Columns": worst_index.MAX_COLUMNS,
+            u"Cardinality": worst_index.CARDINALITY,
+            u"Row Number": worst_index.ROW_AMOUNT,
+            u"Index Type": worst_index.INDEX_TYPE,
+            u"Selectivity": worst_index.SELECTIVITY
+        }
 
         if worst_index.SELECTIVITY < 25:
-            option.format_print(f"{worst_index.INDEX} has a low selectivity", style=u"bad")
+            option.format_print(f"{worst_index.INDEX} has a low selectivity", style=tuner.Print.BAD)
 
     if not info.performance_schema:
-        return recommendations, adjusted_vars
+        return recommendations, adjusted_vars, results
 
     unused_indexes_query: sqla.Text = info.query_from_file(u"unused-indexes-query.sql")
     result = sess.execute(unused_indexes_query)
@@ -2686,15 +2740,17 @@ def mysql_indexes(
         UnusedIndex(*unused_index)
         for unused_index in result.fetchall()
     ]
-    option.format_print(u"Unused Indexes", style=u"info")
+    option.format_print(u"Unused Indexes", style=tuner.Print.INFO)
     if len(unused_indexes) > 0:
         recommendations.append(u"Remove unused indexes.")
-    for unused_index in unused_indexes:
-        option.format_print(f"{unused_index}", style=u"debug")
-        option.format_print(f"Index: {unused_index.INDEX} on {unused_index.SCHEMA_TABLE} is not used", style=u"bad")
-        # TODO add to result object
 
-    return recommendations, adjusted_vars
+    results[u"Indexes"]["Unused Indexes"]: typ.List = []
+    for unused_index in unused_indexes:
+        option.format_print(f"{unused_index}", style=tuner.Print.DEBUG)
+        option.format_print(f"Index: {unused_index.INDEX} on {unused_index.SCHEMA_TABLE} is not used", style=tuner.Print.BAD)
+        results[u"Indexes"]["Unused Indexes"].append(f"{unused_index.SCHEMA_TABLE}.{unused_index.INDEX}")
+
+    return recommendations, adjusted_vars, results
 
 
 def make_recommendations(
@@ -2711,23 +2767,23 @@ def make_recommendations(
     :param tuner.Calc calc:
     :return:
     """
-    option.format_print(u"Recommendations", style=u"subheader")
+    option.format_print(u"Recommendations", style=tuner.Print.SUBHEADER)
 
     if recommendations:
-        option.format_print(u"General Recommendations:", style=u"pretty")
+        option.format_print(u"General Recommendations:", style=tuner.Print.PRETTY)
         for recommendation in recommendations:
-            option.format_print(f"\t{recommendation}", style=u"pretty")
+            option.format_print(f"\t{recommendation}", style=tuner.Print.PRETTY)
 
     if adjusted_vars:
-        option.format_print(u"Variables to Adjust:", style=u"pretty")
+        option.format_print(u"Variables to Adjust:", style=tuner.Print.PRETTY)
         if calc.pct_max_physical_memory > 90:
-            option.format_print(u"  *** MySQL's maximum memory usage is dangerously high ***", style=u"pretty")
-            option.format_print(u"  *** Add RAM before increasing MySQL buffer variables ***", style=u"pretty")
+            option.format_print(u"  *** MySQL's maximum memory usage is dangerously high ***", style=tuner.Print.PRETTY)
+            option.format_print(u"  *** Add RAM before increasing MySQL buffer variables ***", style=tuner.Print.PRETTY)
         for adjusted_var in adjusted_vars:
-            option.format_print(f"\t{adjusted_var}", style=u"pretty")
+            option.format_print(f"\t{adjusted_var}", style=tuner.Print.PRETTY)
 
     if not recommendations and not adjusted_vars:
-        option.format_print(u"No additional performance recommendations are available.", style=u"pretty")
+        option.format_print(u"No additional performance recommendations are available.", style=tuner.Print.PRETTY)
 
 
 def template_model(option: tuner.Option, info: tuner.Info) -> str:
@@ -2750,9 +2806,9 @@ def template_model(option: tuner.Option, info: tuner.Info) -> str:
 
 def dump_result(result: typ.Any, option: tuner.Option, info: tuner.Info) -> None:
     if option.debug:
-        option.format_print(f"{result}", style=u"debug")
+        option.format_print(f"{result}", style=tuner.Print.DEBUG)
 
-    option.format_print(f"HTML REPORT: {option.report_file}", style=u"debug")
+    option.format_print(f"HTML REPORT: {option.report_file}", style=tuner.Print.DEBUG)
 
     if option.report_file:
         _template_model: str = template_model(option, info)

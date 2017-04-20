@@ -3,6 +3,7 @@ Module to contain the tuner classes
 """
 
 import collections as clct
+import enum
 import functools as funct
 import getpass as gp
 import os.path as osp
@@ -11,6 +12,16 @@ import sqlalchemy as sqla
 import sqlalchemy.orm as orm
 import typing as typ
 import pysqltuner.fancy_print as fp
+
+
+class Print(enum.IntEnum):
+    PRETTY: int = -1
+    DEBUG: int = 0
+    BAD: int = 1
+    GOOD: int = 2
+    INFO: int = 3
+    CMD: int = 4
+    SUBHEADER: int = 5
 
 
 class Option:
@@ -128,20 +139,20 @@ class Option:
 
     @funct.lru_cache()
     @property
-    def style(self) -> typ.Dict[str, typ.Tuple[bool, str]]:
+    def style(self) -> typ.Dict[Print, typ.Tuple[bool, str]]:
         """Outputs print style
 
         :return typ.Dict[typ.Tuple[bool, str]]: dict of style and whether to print type and how to format
         """
         return {
-            u"good": (self.no_good, self.good_out),
-            u"bad": (self.no_bad, self.bad_out),
-            u"info": (self.no_info, self.info_out),
-            u"debug": (self.debug, self.debug_out),
-            u"cmd": (True, self.cmd_out)
+            Print.GOOD: (self.no_good, self.good_out),
+            Print.BAD: (self.no_bad, self.bad_out),
+            Print.INFO: (self.no_info, self.info_out),
+            Print.DEBUG: (self.debug, self.debug_out),
+            Print.CMD: (True, self.cmd_out)
         }
 
-    def format_print(self, line: str, style: str="debug", line_spaces: int=8, line_total: int=100) -> None:
+    def format_print(self, line: str, style: Print=Print.DEBUG, line_spaces: int=8, line_total: int=100) -> None:
         """Prints color formatted messages
 
         :param str line: input message
@@ -150,12 +161,13 @@ class Option:
         :param int line_total: total length of line
         :return:
         """
-        if style == u"subheader":
-            return self.subheader_print(line, line_spaces, line_total)
-
-        no_format, format_out = self.style[style]
-
-        fp.format_print(line, no_format, format_out, self.silent, self.json)
+        if style == Print.SUBHEADER:
+            self.subheader_print(line, line_spaces, line_total)
+        elif style == Print.PRETTY:
+            fp.pretty_print(line, self.silent, self.json)
+        else:
+            no_format, format_out = self.style[style]
+            fp.format_print(line, no_format, format_out, self.silent, self.json)
 
     def subheader_print(self, line: str, line_spaces: int=8, line_total: int=100) -> None:
         """Prints subheader
@@ -175,7 +187,7 @@ class Option:
         """
         for line in lines:
             info_line: str = f"\t{line.strip()}"
-            self.format_print(info_line, style="info")
+            self.format_print(info_line, style=Print.INFO)
 
     def info_print_cmd(self, lines: typ.Sequence[str]) -> None:
         """Prints each line in command info array
@@ -183,7 +195,7 @@ class Option:
         :param typ.Sequence[str] lines: array of info messages
         :return:
         """
-        self.format_print(f"{lines}", style=u"cmd")
+        self.format_print(f"{lines}", style=Print.CMD)
         info_lines: typ.Sequence[str] = [
             line
             for line in lines
@@ -285,6 +297,9 @@ class Info:
         self.gtid_strict_mode: str = None
         self.binlog_format: str = None
         self.innodb_flush_log_at_trx_commit: bool = False
+        self.slaves: typ.Dict[str, str] = {}
+        self.replicas: typ.Dict[str, str] = {}
+        self.read_only: bool = False
 
         version_query_file: str = osp.join(self.query_dir, u"version-query.sql")
 
