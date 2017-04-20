@@ -989,10 +989,15 @@ def security_recommendations(
 
 
 def replication_status(option: tuner.Option, info: tuner.Info) -> typ.Dict:
+    """Replication status
+    
+    :param tuner.Option option: 
+    :param tuner.Info info: 
+    :return typ.Dict: results
+    """
     results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     option.format_print(u"Replication Metrics", style=tuner.Print.SUBHEADER)
-    # TODO get info from variable gathering function
     option.format_print(f"Galera Synchronous replication {info.have_galera}", style=tuner.Print.INFO)
 
     if not info.slaves:
