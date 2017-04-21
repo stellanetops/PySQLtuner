@@ -258,12 +258,14 @@ class Info:
         self.temp_table_size: int = 0
         self.max_heap_table_size: int = 0
         self.key_buffer_size: int = 0
+        self.binlog_cache_size: int = 0
         self.innodb_buffer_pool_size: int = 0
         self.innodb_buffer_pool_instances: int = 0
         self.innodb_buffer_pool_chunk_size: int = 0
         self.innodb_additional_mem_pool_size: int = 0
         self.innodb_log_buffer_size: int = 0
         self.query_cache_size: int = 0
+        self.query_cache_type: int = 0
         self.ariadb_pagecache_buffer_size: int = 0
         self.key_cache_block_size: int = 0
         self.open_files_limit: int = 0

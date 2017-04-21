@@ -1054,6 +1054,7 @@ def replication_status(option: tuner.Option, info: tuner.Info) -> typ.Dict:
 
     return results
 
+
 def validate_mysql_version(option: tuner.Option, info: tuner.Info) -> None:
     """Check MySQL Version
 
@@ -1624,19 +1625,24 @@ def mysql_stats(
     option: tuner.Option,
     info: tuner.Info,
     stat: tuner.Stat,
-    calc: tuner.Calc
- ) -> typ.Sequence[typ.List[str], typ.List[str]]:
+    calc: tuner.Calc,
+    physical_memory: int,
+    arch: int
+ ) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
     """MySQL stats
 
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
-    :param tuenr.Calc calc:
-
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :param tuner.Calc calc:
+    :param int physical_memory: amount of physical memory in bytes
+    :param int arch: what bit the architecture is (32 / 64)
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
     option.format_print(u"Performance Metrics", style=tuner.Print.SUBHEADER)
     # Show uptime, queries per second, connections, traffic stats
@@ -1665,7 +1671,66 @@ def mysql_stats(
     option.format_print(f"Max MySQL Memory      : {util.bytes_to_string(calc.max_peak_memory)}", style=tuner.Print.INFO)
     option.format_print(f"Other Process Memory  : {util.bytes_to_string(other_process_memory())}", style=tuner.Print.INFO)
 
-    return recommendations, adjusted_vars
+    option.format_print((
+        f"Total Buffers: {util.bytes_to_string(calc.server_buffers)} global "
+        f"+ {util.bytes_to_string(calc.per_thread_buffers)} per thread "
+        f"({info.max_connections} max threads)"
+    ), style=tuner.Print.INFO)
+
+    option.format_print(f"P_S Max Memory Usage: {util.bytes_to_string(performance_memory(info, sess))}", style=tuner.Print.INFO)
+
+    opm: int = other_process_memory()
+    results[u"P_S"][u"Memory"]: int = opm
+    results[u"P_S"][u"Pretty_Memory"]: str = util.bytes_to_string(opm)
+
+    gcache_mem: int = gcache_memory(option, info)
+    option.format_print(f"Galera GCache Max Memory Usage: {util.bytes_to_string(gcache_mem)}", style=tuner.Print.INFO)
+    results[u"Galera"][u"GCache"][u"Memory"]: int = gcache_mem
+    results[u"Galera"][u"GCache"][u"Pretty_Memory"]: str = util.bytes_to_string(gcache_mem)
+
+    if option.buffers:
+        option.format_print(u"Global Buffers", style=tuner.Print.INFO)
+        option.format_print(f" +-- Key Buffer: {util.bytes_to_string(info.key_buffer_size)}", style=tuner.Print.INFO)
+        option.format_print(f" +-- Max Temp Table Size: {util.bytes_to_string(calc.max_temp_table_size)}", style=tuner.Print.INFO)
+
+        if info.query_cache_type:
+            option.format_print(u"Query Cache Buffers", style=tuner.Print.INFO)
+            option.format_print(f" +-- Query Cache: {info.query_cache_type}", style=tuner.Print.INFO)
+            # TODO decide what the choices are to print here
+            option.format_print(f" +-- Query Cache: {util.bytes_to_string(info.query_cache_size)}", style=tuner.Print.INFO)
+
+        option.format_print(u"Per Thread Buffers", style=tuner.Print.INFO)
+        option.format_print(f" +-- Read Buffer: {util.bytes_to_string(info.read_buffer_size)}", style=tuner.Print.INFO)
+        option.format_print(f" +-- Read RND Buffer: {util.bytes_to_string(info.read_rnd_buffer_size)}", style=tuner.Print.INFO)
+        option.format_print(f" +-- Sort Buffer: {util.bytes_to_string(info.sort_buffer_size)}", style=tuner.Print.INFO)
+        option.format_print(f" +-- Join Buffer: {util.bytes_to_string(info.join_buffer_size)}", style=tuner.Print.INFO)
+        if info.log_bin:
+            option.format_print(u"Binlog Cache Buffers", style=tuner.Print.INFO)
+            option.format_print(f" +-- Binlog Cache: {util.bytes_to_string(info.binlog_cache_size)}", style=tuner.Print.INFO)
+
+    if arch == 32 and calc.max_used_memory > 2 * 1024 ** 3:
+        option.format_print(u"Allocation > 2 GB RAM on 32-bit systems can cause system instability", style=tuner.Print.BAD)
+        option.format_print(f"Maximum reached Memory Usage {calc.max_used_memory} ({calc.pct_max_used_memory})% of installed RAM", style=tuner.Print.BAD)
+    elif calc.pct_max_used_memory > 85:
+        option.format_print(f"Maximum reached Memory Usage {calc.max_used_memory} ({calc.pct_max_used_memory})% of installed RAM", style=tuner.Print.BAD)
+    else:
+        option.format_print(f"Maximum reached Memory Usage {calc.max_used_memory} ({calc.pct_max_used_memory})% of installed RAM", style=tuner.Print.GOOD)
+
+    if calc.pct_max_physical_memory > 85:
+        option.format_print(f"Maximum possible Memory Usage {calc.max_peak_memory} ({calc.pct_max_physical_memory})% of installed RAM", style=tuner.Print.BAD)
+        recommendations.append(u"Reduce your overall MySQL memory footprint for system stability")
+    else:
+        option.format_print(f"Maximum possible Memory Usage {calc.max_peak_memory} ({calc.pct_max_physical_memory})% of installed RAM", style=tuner.Print.GOOD)
+
+    if physical_memory < calc.max_peak_memory * opm:
+        option.format_print(u"Overall possible memory usage with other process exceeded memory", style=tuner.Print.BAD)
+        recommendations.append(u"Dedicate this server to your database for highest performance")
+    else:
+        option.format_print(u"Overall possible memory usage with other process is compatible with memory available", style=tuner.Print.GOOD)
+
+    # Slow Queries
+
+    return recommendations, adjusted_vars, results
 
 
 def mysql_myisam(
