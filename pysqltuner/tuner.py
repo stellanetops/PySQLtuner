@@ -236,6 +236,8 @@ class Info:
         self._ver_major: int = 0
         self._ver_minor: int = 0
         self._ver_micro: int = 0
+        self.databases: typ.Sequence[str] = []
+        self.database_tables: typ.Dict[str, typ.List[str]] = []
         self.data_dir: str = None
         self.script_dir: str = osp.dirname(__file__)
         self.query_dir: str = osp.join(osp.dirname(__file__), u"../query")

@@ -426,7 +426,19 @@ def mysql_status_vars(option: tuner.Option, info: tuner.Info, sess: orm.session.
 
         setattr(info, f"have_{engine_name}", engine_value)
         results[u"Storage Engines"][engine_name] = support
-    # TODO replication information
+
+    option.format_print(f"{engine_supports}", style=tuner.Print.DEBUG)
+    mysql_slave: typ.Sequence[str] = sess.execute(sqla.Text(u"SHOW SLAVE STATUS\\G;")).fetchall()
+    results[u"Replication"][u"Status"]: typ.Sequence[str] = mysql_slave
+    info.replicas: typ.Sequence[str] = mysql_slave
+
+    mysql_slaves: typ.Sequence[str] = sess.execute(sqla.Text(u"SHOW SLAVE HOSTS;")).fetchall()
+
+    for slave in mysql_slaves:
+        option.format_print(f"L: {slave}", style=tuner.Print.DEBUG)
+        slave_items: typ.Sequence[str] = slave.split()
+        info.slaves[slave_items[0]]: str = slave
+        results[u"Replication"][u"Slaves"][slave_items[0]]: str = slave_items[4]
 
     return results
 
@@ -1105,6 +1117,8 @@ def check_storage_engines(
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
     results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
+    engine_stats: typ.Dict[str, int] = {}
+    engine_count: typ.Dict[str, int] = {}
 
     option.format_print(u"Storage Engine Statistics", style=tuner.Print.SUBHEADER)
     if option.skip_size:
@@ -1178,6 +1192,8 @@ def check_storage_engines(
 
     option.format_print(f"Status {engines}", style=tuner.Print.INFO)
 
+    fragmented_table_count: int = 0
+
     if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1, 5):
         # MySQL 5 servers can have table sizes calculated quickly from information schema
         engine_query: sqla.Text = info.query_from_file(u"engine-query.sql")
@@ -1220,11 +1236,101 @@ def check_storage_engines(
         ]
         results[u"Tables"][u"Fragmented Tables"]: typ.Sequence[typ.Tuple[str, int]] = frag_table_sizes
     else:
-        raise NotImplementedError
+        table_infos: typ.List[typ.List] = []
+        for db in info.databases:
+            # MySQL < 5 servers take a lot of work to get table sizes
+            # MySQL 3.23/4.0 keeps Data_Length in the 5th (0-based) column, else 6th
+            if (info.ver_major, info.ver_minor, info.ver_micro) < (4, 1):
+                indexes: typ.Tuple[int, int, int] = (1, 6, 9)
+            else:
+                indexes: typ.Tuple[int, int, int] = (1, 5, 8)
 
-        # TODO set variables and add recommendations
-        # TODO defragment tables
-        # TODO etc
+            result = sess.execute(sqla.Text(f"SHOW TABLE STATUS FROM `{db}`"))
+            for info in result.fetchall():
+                table_infos.append([info.split()[index].strip() for index in indexes])
+
+        # Parse through the table list to generate storage engine counts/statistics
+        fragmented_table_count: int = 0
+        for table_info in table_infos:
+            option.format_print(f"Data Dump {table_info}", style=tuner.Print.DEBUG)
+            engine, size, free_data = table_info
+            size: int = int(size) if size != u"NULL" else 0
+            free_data: int = int(free_data) if free_data != u"NULL" else 0
+
+            if engine_stats[engine]:
+                engine_stats[engine] += size
+                engine_count[engine] += 1
+            else:
+                engine_stats[engine] = size
+                engine_count[engine] = 1
+
+            if free_data == 0:
+                fragmented_table_count += 1
+
+    for engine, size in engine_stats.items():
+        option.format_print((
+            f"Data in {engine} tables: {util.string_to_bytes(size)} "
+            f"(Tables: {engine_count[engine]})"
+        ), style=tuner.Print.INFO)
+
+    # If the storage engine isn't being used, recommend it to be disabled
+    if engine_stats[u"InnoDB"] and info.have_innodb:
+        option.format_print(u"InnoDB is enabled but isn't being used", style=tuner.Print.BAD)
+        recommendations.append(u"Add skip-innodb to MySQL configuration to disable InnoDB")
+
+    if engine_stats[u"BerkeleyDB"] and info.have_bdb:
+        option.format_print(u"BDB is enabled but isn't being used", style=tuner.Print.BAD)
+        recommendations.append(u"Add skip-bdb to MySQL configuration to disable BDB")
+
+    if engine_stats[u"ISAM"] and info.have_myisam:
+        option.format_print(u"MyISAM is enabled but isn't being used", style=tuner.Print.BAD)
+        recommendations.append(u"Add skip-isam to MySQL configuration to disable MyISAM (MySQL > 4.1.0)")
+
+    # Fragmented tables
+    if fragmented_table_count > 0:
+        option.format_print(f"Total fragmented tables: {fragmented_table_count}", style=tuner.Print.BAD)
+        recommendations.append(u"Run OPTIMIZE to defragment tables for better performance")
+
+        free_total: int = 0
+        for table_size in results[u"Tables"][u"Fragmented Tables"]:
+            table, free_data = table_size
+            free_data: int = 0 if not free_data else int(free_data) / 1024 ** 2
+            free_total += free_data
+            recommendations.append(f"OPTIMIZE TABLE {table}; -- Can Free {free_data} MB")
+    else:
+        option.format_print(f"Total fragmented tables: {fragmented_table_count}", style=tuner.Print.GOOD)
+
+    # Find the maximum integer
+    results[u"MaxInt"]: int = int(sess.execute(sqla.Text(u"SELECT ~0")).fetchall())
+    max_int: int = results[u"MaxInt"]
+
+    table_infos: typ.List[typ.List] = []
+    for db in info.databases:
+        # MySQL < 5 servers take a lot of work to get table sizes
+        # MySQL 3.23/4.0 keeps Data_Length in the 5th (0-based) column, else 6th
+        if (info.ver_major, info.ver_minor, info.ver_micro) < (4, 1):
+            indexes: typ.Tuple[int, int] = (0, 10)
+        else:
+            indexes: typ.Tuple[int, int] = (0, 9)
+
+        result = sess.execute(sqla.Text(f"SHOW TABLE STATUS FROM `{db}`"))
+        for info in result.fetchall():
+            table_infos.append([info.split()[index].strip() for index in indexes])
+
+    for db in info.databases:
+        for table_info in table_infos:
+            table, auto_increment = table_info
+            if info.database_tables[table]:
+                try:
+                    auto_increment: float = float(auto_increment.strip())
+                    percent: float = util.percentage(auto_increment, max_int)
+                    results[u"PctAutoIncrement"][f"`{db}`.`{table}"]: float = percent
+                    if percent > 75:
+                        option.format_print((
+                            f"Table `{db}`.`{table}` has an autoincrement value near max capacity ({percent}%)"
+                        ), style=tuner.Print.BAD)
+                except ValueError:
+                    pass
 
     return recommendations, adjusted_vars, results
 
@@ -2189,7 +2295,8 @@ def mysql_innodb(
     option: tuner.Option,
     info: tuner.Info,
     stat: tuner.Stat,
-    calc: tuner.Calc
+    calc: tuner.Calc,
+    engine_stats: typ.Dict[str, int]
 ) -> typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
     """Recommendations for InnoDB
 
@@ -2197,7 +2304,7 @@ def mysql_innodb(
     :param tuner.Info info:
     :param tuner.Stat stat:
     :param tuner.Calc calc:
-
+    :param typ.Dict[str, int] engine_stats: Engine size
     :return typ.Sequence[typ.List[str], typ.List[str], typ.DefaultDict]:
         list of recommendations and list of adjusted variables, and results
     """
@@ -2285,22 +2392,21 @@ def mysql_innodb(
         option.format_print(u"InnoDB file per table is not activated", style=tuner.Print.BAD)
         adjusted_vars.append(u"innodb_file_per_table=ON")
 
-    # TODO figure out engine_stat
     # InnoDB Buffer Pool Size
-    if info.innodb_buffer_pool_size > engine_stat.innodb:
+    if info.innodb_buffer_pool_size > engine_stats[u"InnoDB"]:
         option.format_print((
             u"InnoDB Buffer Pool / Data size: "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
-            f"{util.bytes_to_string(engine_stat.innodb)}"
+            f"{util.bytes_to_string(engine_stats[u'InnoDB'])}"
         ), style=tuner.Print.GOOD)
     else:
         option.format_print((
             u"InnoDB Buffer Pool / Data size: "
             f"{util.bytes_to_string(info.innodb_buffer_pool_size)}/"
-            f"{util.bytes_to_string(engine_stat.innodb)}"
+            f"{util.bytes_to_string(engine_stats[u'InnoDB'])}"
         ), style=tuner.Print.BAD)
         adjusted_vars.append(
-            f"innodb_buffer_pool_size (>= {util.bytes_to_string(engine_stat.innodb)}) if possible."
+            f"innodb_buffer_pool_size (>= {util.bytes_to_string(engine_stats[u'InnoDB'])}) if possible."
         )
 
     if 20 <= calc.innodb_log_size_pct <= 30:
