@@ -1696,7 +1696,6 @@ def mysql_stats(
         if info.query_cache_type:
             option.format_print(u"Query Cache Buffers", style=tuner.Print.INFO)
             option.format_print(f" +-- Query Cache: {info.query_cache_type}", style=tuner.Print.INFO)
-            # TODO decide what the choices are to print here
             option.format_print(f" +-- Query Cache: {util.bytes_to_string(info.query_cache_size)}", style=tuner.Print.INFO)
 
         option.format_print(u"Per Thread Buffers", style=tuner.Print.INFO)
@@ -1729,7 +1728,100 @@ def mysql_stats(
         option.format_print(u"Overall possible memory usage with other process is compatible with memory available", style=tuner.Print.GOOD)
 
     # Slow Queries
+    if calc.pct_slow_queries > 5:
+        option.format_print(f"Slow queries: {calc.pct_slow_queries}% ({stat.slow_queries} / {stat.questions})", style=tuner.Print.BAD)
+    else:
+        option.format_print(f"Slow queries: {calc.pct_slow_queries}% ({stat.slow_queries} / {stat.questions})", style=tuner.Print.GOOD)
 
+    if info.long_query_time > 10:
+        adjusted_vars.append(u"long_query_time (<= 10)")
+    if not info.log_slow_queries:
+        recommendations.append(u"Enable the slow query log to troubleshoot bad queries")
+
+    # Connections
+    if calc.pct_connections_used > 85:
+        option.format_print(f"Highest connection usage: {calc.pct_connections_used}% ({stat.max_used_connections} / {info.max_connections}", style=tuner.Print.BAD)
+        adjusted_vars.extend((
+            f"max_connections (> {info.max_connections})",
+            f"wait_timeout (< {info.wait_timeout})",
+            f"interactive_timeout (< {info.interactive_timeout})"
+        ))
+    else:
+        option.format_print(f"Highest connection usage: {calc.pct_connections_used}% ({stat.max_used_connections} / {info.max_connections}", style=tuner.Print.GOOD)
+
+    # Aborted Connections
+    if calc.pct_connections_aborted > 3:
+        option.format_print(f"Aborted Connections: {calc.pct_connections_aborted}% ({stat.aborted_connections} / {stat.connections}", style=tuner.Print.BAD)
+        recommendations.append(u"Reduce or eliminate unclosed connections and network issues")
+    else:
+        option.format_print(f"Aborted Connections: {calc.pct_connections_aborted}% ({stat.aborted_connections} / {stat.connections}", style=tuner.Print.GOOD)
+
+    # Name Resolution
+    if results[u"Variables"][u"skip_networking"] == u"ON":
+        option.format_print(u"Skipped name resolution test due to skip_networking = ON in system variables", style=tuner.Print.INFO)
+    elif not results[u"Variables"][u"skip_name_resolve"]:
+        option.format_print(u"Skipped name resolution test due to missing skip_name_resolve in system variables", style=tuner.Print.INFO)
+    elif results[u"Variables"][u"skip_name_resolve"] == u"OFF":
+        option.format_print(u"Name resolution is active: A reverse name resolution is named for each new connection and can reduce performace", style=tuner.Print.BAD)
+        recommendations.append(u"Configure your accounts with IP or subnets only, then update your configuration with skip-name-resolve=1")
+
+    # Query Cache
+    if (info.ver_major, info.ver_minor, info.ver_micro) <= (4,):
+        # MySQL versions < 4.01 don't support query caching
+        recommendations.append(u"Upgrade MySQL to version 4.01+ to utilize query caching")
+    elif (5, 5) <= (info.ver_major, info.ver_minor, info.ver_micro) < (10, 1) and info.query_cache_type == u"OFF":
+        option.format_print(u"Query cache is disabled by default due to mutex contention on multiprocessor machines.", style=tuner.Print.GOOD)
+    elif info.query_cache_size < 1:
+        option.format_print(u"Query cache is disabled", style=tuner.Print.BAD)
+        adjusted_vars.append(u"query_cache_size (>= 8M)")
+    elif info.query_cache_type == u"OFF":
+        option.format_print(u"Query cache is disabled", style=tuner.Print.BAD)
+        adjusted_vars.append(u"query_cache_type (= 1)")
+    elif stat.com_select == 0:
+        option.format_print(u"Query cache cannot be analyzed - no SELECT statements executed.", style=tuner.Print.BAD)
+    else:
+        option.format_print(u"Query cache may be disabled by default due to mutex contention.", style=tuner.Print.BAD)
+        adjusted_vars.append(u"query_cache_type (= 0)")
+
+        if calc.query_cache_efficiency < 20:
+            option.format_print(f"Query Cache efficiency: {calc.query_cache_efficiency}% ({stat.query_cache_hits} cached / {stat.query_cache_hits + stat.com_select} selects)", style=tuner.Print.BAD)
+            adjusted_vars.append(f"query_cache_limit (> {info.query_cache_limit}, or use smaller result sets)")
+        else:
+            option.format_print(f"Query Cache efficiency: {calc.query_cache_efficiency}% ({stat.query_cache_hits} cached / {stat.query_cache_hits + stat.com_select} selects)", style=tuner.Print.GOOD)
+
+        if calc.query_cache_prunes_per_day > 98:
+            option.format_print(f"Query Cache prunes per day: {calc.query_cache_prunes_per_day}", style=tuner.Print.BAD)
+            if info.query_cache_size > 128 * 1024 ** 2:
+                recommendations.append(u"Increasing the query_cache_size over 128MB may reduce performance")
+                adjusted_vars.append(f"query_cache_size (> {util.bytes_to_string(info.query_cache_size)}) [See Warning Above]")
+            else:
+                adjusted_vars.append(f"query_cache_size (> {util.bytes_to_string(info.query_cache_size)})")
+        else:
+            option.format_print(f"Query Cache prunes per day: {calc.query_cache_prunes_per_day}", style=tuner.Print.GOOD)
+
+    # Sorting
+    if calc.total_sorts == 0:
+        option.format_print(u"No sort requiring temporary tables", style=tuner.Print.GOOD)
+    elif calc.pct_temp_sort_table > 10:
+        option.format_print(f"Sorts requiring temporary tables: {calc.pct_temp_sort_table}% ({stat.sort_merge_passes} temp sorts / {calc.total_sorts} sorts)", style=tuner.Print.BAD)
+        adjusted_vars.extend((
+            f"sort_buffer_size (> {util.bytes_to_string(info.sort_buffer_size)})"
+            f"read_rnd_buffer_size (> {util.bytes_to_string(info.read_rnd_buffer_size)})"
+        ))
+    else:
+        option.format_print(f"Sorts requiring temporary tables: {calc.pct_temp_sort_table}% ({stat.sort_merge_passes} temp sorts / {calc.total_sorts} sorts)", style=tuner.Print.GOOD)
+
+    # Joins
+    if calc.joins_without_indexes_per_day > 250:
+        option.format_print(f"Joins performed without indexes: {calc.joins_without_indexes}", style=tuner.Print.BAD)
+        adjusted_vars.append(f"join_buffer_size (> {util.bytes_to_string(info.join_buffer_size)}, or always use indexes with joins)")
+        recommendations.append(u"Adjust your join queries to always utilize indexes")
+    else:
+        option.format_print(u"No joins without indexes", style=tuner.Print.GOOD)
+
+    # Temporary tables
+    if stat.created_temp_tables > 0:
+        pass
     return recommendations, adjusted_vars, results
 
 

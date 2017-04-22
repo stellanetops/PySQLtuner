@@ -259,6 +259,10 @@ class Info:
         self.max_heap_table_size: int = 0
         self.key_buffer_size: int = 0
         self.binlog_cache_size: int = 0
+        self.long_query_time: int = 0
+        self.log_slow_queries: bool = False
+        self.wait_timeout: int = 0
+        self.interactive_timeout: int = 0
         self.innodb_buffer_pool_size: int = 0
         self.innodb_buffer_pool_instances: int = 0
         self.innodb_buffer_pool_chunk_size: int = 0
@@ -266,6 +270,7 @@ class Info:
         self.innodb_log_buffer_size: int = 0
         self.query_cache_size: int = 0
         self.query_cache_type: int = 0
+        self.query_cache_limit: int = 0
         self.ariadb_pagecache_buffer_size: int = 0
         self.key_cache_block_size: int = 0
         self.open_files_limit: int = 0
@@ -442,7 +447,7 @@ class Calc:
         self.pct_query_cache_used: float = 0
         self.query_cache_prunes_per_day: int = 0
         self.total_sorts: int = 0
-        self.pct_temp_store_table: int = 0
+        self.pct_temp_sort_table: int = 0
         self.joins_without_indexes: int = 0
         self.joins_without_indexes_per_day: int = 0
         self.pct_temp_disk: int = 0
