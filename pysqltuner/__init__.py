@@ -1916,8 +1916,7 @@ def mysql_myisam(
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
-    :param tuenr.Calc calc:
-
+    :param tuner.Calc calc:
     :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
     """
     recommendations: typ.List[str] = []
@@ -2066,28 +2065,349 @@ def performance_memory(info: tuner.Info, sess: orm.session.Session) -> int:
     return sum(memory_sizes)
 
 
-# TODO 1500 line function
+def performance_check(
+    sess: orm.session.Session,
+    option: tuner.Option,
+    info: tuner.Info,
+    subheader: str,
+    query_file: str
+) -> None:
+    """Checks specific part of performance and prints information
+    
+    :param orm.session.Session sess: 
+    :param tuner.Option option: 
+    :param tuner.Info info:
+    :param str subheader: subheader message
+    :param str query_file: name of file containing query
+    """
+    option.format_print(subheader, style=tuner.Print.SUBHEADER)
+    query: str = osp.join(info.query_dir, query_file)
+    line_num: int = 0
+    result = sess.execute(sqla.Text(query))
+    for query_line in result.fetchall():
+        option.format_print(f" +-- {line_num}: {query_line}")
+        line_num += 1
+
+    if line_num == 1:
+        option.format_print(u"No information found, or indicators deactivated.", style=tuner.Print.INFO)
+
+
 def mysql_pfs(
     sess: orm.session.Session,
     option: tuner.Option,
     info: tuner.Info,
     stat: tuner.Stat,
     calc: tuner.Calc
-) -> typ.Sequence[typ.List[str], typ.List[str]]:
-    """
+) -> typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+    """Recommendations for performance schema
 
     :param orm.session.Session sess:
     :param tuner.Option option:
     :param tuner.Info info:
     :param tuner.Stat stat:
-    :param tuenr.Calc calc:
-
-    :return typ.Sequence[typ.List[str], typ.List[str]]: list of recommendations and list of adjusted variables
+    :param tuner.Calc calc:
+    :return typ.Sequence[typ.List[str], typ.List[str], typ.Dict]:
+        list of recommendations and list of adjusted variables, and results
     """
     recommendations: typ.List[str] = []
     adjusted_vars: typ.List[str] = []
+    results: typ.DefaultDict[typ.DefaultDict] = clct.defaultdict(clct.defaultdict(clct.defaultdict(dict)))
 
-    return recommendations, adjusted_vars
+    option.format_print(u"Performance Schema", style=tuner.Print.SUBHEADER)
+
+    # Performance Schema
+    if not info.performance_schema:
+        option.format_print(u"Performance Schema is disabled", style=tuner.Print.INFO)
+        if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 6):
+            recommendations.append(u"Performance schema should be activated for better diagnostics")
+            adjusted_vars.append(u"performance_schema = ON enable PFS")
+        else:
+            recommendations.append(u"Performance schema shouldn't be activated for MySQL and MariaDB 5.5 and lower versions")
+            adjusted_vars.append(u"performance_schema = OFF disable PFS")
+
+    option.format_print(f"Performance schema is {'ON' if info.performance_schema else 'OFF'}", style=tuner.Print.DEBUG)
+    option.format_print(f"Memory used by performance_schema: {util.bytes_to_string(performance_memory(info, sess))}", style=tuner.Print.INFO)
+
+    if u"sys" not in info.databases:
+        option.format_print(u"Sys schema is not installed.", style=tuner.Print.INFO)
+        recommendations.append(u"Consider installing sys schema from https://github.com/mysql/mysql-sys")
+        return recommendations, adjusted_vars, results
+    else:
+        option.format_print(u"Sys schema is installed.", style=tuner.Print.INFO)
+
+    if not option.pf_stat or not info.performance_schema:
+        return recommendations, adjusted_vars, results
+
+    result = sess.execute(sqla.Text(u"SELECT `ver`.`sys_version` AS `SYS_VERSION` FROM `sys`.`version` AS `ver`;"))
+    sys_version: str = list(result.fetchall())[0].SYS_VERSION
+
+    option.format_print(f"Sys Schema Version: {sys_version}", style=tuner.Print.INFO)
+
+    # TODO create and fill in query files
+
+    # Top Users per connection
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per connection", query_file)
+
+    # Top Users per statement
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement", query_file)
+
+    # Top Users per statement latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement latency", query_file)
+
+    # Top Users per lock latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per per lock latency", query_file)
+
+    # Top Users per full scans
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per full scan", query_file)
+
+    # Top Users per rows sent
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows sent", query_file)
+
+    # Top Users per rows modified
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows modified", query_file)
+
+    # Top Users per io
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per io", query_file)
+
+    # Top Users per io latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per io latency", query_file)
+
+    # Top Hosts per connection
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per connection", query_file)
+
+    # Top Hosts per statement
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement", query_file)
+
+    # Top Hosts per statement latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement latency", query_file)
+
+    # Top Hosts per lock latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per lock latency", query_file)
+
+    # Top Hosts per full scans
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per full scans", query_file)
+
+    # Top Hosts per rows sent
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows sent", query_file)
+
+    # Top Hosts per rows modified
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows modified", query_file)
+
+    # Top Hosts per io
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io", query_file)
+
+    # Top Hosts per io latency
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io latency", query_file)
+
+    # Top IO Type order by total io
+    performance_check(sess, option, info, u"Performance schema: Top IO Type order by total io", query_file)
+
+    # Top IO Type order by total latency
+    performance_check(sess, option, info, u"Performance schema: Top IO Type order by total latency", query_file)
+
+    # Top IO Type order by max latency
+    performance_check(sess, option, info, u"Performance schema: Top IO Type order by max latency", query_file)
+
+    # Top Stages order by total io
+    performance_check(sess, option, info, u"Performance schema: Top Stages order by total io", query_file)
+
+    # Top Stages order by total latency
+    performance_check(sess, option, info, u"Performance schema: Top Stages order by total latency", query_file)
+
+    # Top Stages order by avg latency
+    performance_check(sess, option, info, u"Performance schema: Top Stages order by avg latency", query_file)
+
+    # Top Hosts per per table scans
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per table scans", query_file)
+
+    # InnoDB Buffer Pool by Schema
+    performance_check(sess, option, info, u"Performance schema: InnoDB Buffer Pool by Schema", query_file)
+
+    # InnoDB Buffer Pool by Table
+    performance_check(sess, option, info, u"Performance schema: InnoDB Buffer Pool by Table", query_file)
+
+    # Process per allocated memory
+    performance_check(sess, option, info, u"Performance schema: Process per allocated memory", query_file)
+
+    # InnoDB Lock Waits
+    performance_check(sess, option, info, u"Performance schema: InnoDB Lock Waits", query_file)
+
+    # Threads IO Latency
+    performance_check(sess, option, info, u"Performance schema: Threads IO Latency", query_file)
+
+    # High Cost SQL statements
+    performance_check(sess, option, info, u"Performance schema: High Cost SQL statements", query_file)
+
+    # Top 5% slower queries
+    performance_check(sess, option, info, u"Performance schema: Top 5% slower queries", query_file)
+
+    # Top 10 Statement type
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statement type", query_file)
+
+    # Top 10 Statements by total latency
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statements by total latency", query_file)
+
+    # Top 10 Statements by lock latency
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statements by lock latency", query_file)
+
+    # Top 10 Statements by full scans
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statements by full scans", query_file)
+
+    # Top 10 Statements by rows sent
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statements by rows sent", query_file)
+
+    # Top 10 Statements by rows modified
+    performance_check(sess, option, info, u"Performance schema: Top 10 Statements by rows modified", query_file)
+
+    # Use Temporary tables
+    performance_check(sess, option, info, u"Performance schema: Some queries using temporary tables", query_file)
+
+    # Unused Indexes
+    performance_check(sess, option, info, u"Performance schema: Unused Indexes", query_file)
+
+    # Full table scans
+    performance_check(sess, option, info, u"Performance schema: Tables with full table scans", query_file)
+
+    # Latest 10 files IO by latency
+    performance_check(sess, option, info, u"Performance schema: Latest 10 files IO by latency", query_file)
+
+    # Top 15 Files by IO read bytes
+    performance_check(sess, option, info, u"Performance schema: Top 15 Files by IO read bytes", query_file)
+
+    # Top 15 Files by IO written bytes
+    performance_check(sess, option, info, u"Performance schema: Top 15 Files by IO written bytes", query_file)
+
+    # Top 20 Files per IO total latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Files per IO total latency", query_file)
+
+    # Top 20 Files per IO read latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Files per IO read latency", query_file)
+
+    # Top 20 Files per IO write latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Files per IO write latency", query_file)
+
+    # Top 15 Event Wait by read bytes
+    performance_check(sess, option, info, u"Performance schema: Top 15 Event Wait by read bytes", query_file)
+
+    # Top 15 Event Wait by write bytes
+    performance_check(sess, option, info, u"Performance schema: Top 15 Event Wait by write bytes", query_file)
+
+    # Top 20 Events per wait total latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Events per wait total latency", query_file)
+
+    # Top 20 Events per wait read latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Events per wait read latency", query_file)
+
+    # Top 20 Events per wait write latency
+    performance_check(sess, option, info, u"Performance schema: Top 20 Events per wait write latency", query_file)
+
+    # schema_index_statistics
+    # Top 15 most read indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 most read indexes", query_file)
+
+    # Top 15 most modified indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 most modified indexes", query_file)
+
+    # Top 15 high read latency indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 high read latency indexes", query_file)
+
+    # Top 15 high insert latency indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 high insert latency indexex", query_file)
+
+    # Top 15 high update latency indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 high update latency indexes", query_file)
+
+    # Top 15 high delete latency indexes
+    performance_check(sess, option, info, u"Performance schema: Top 15 high delete latency indexes", query_file)
+
+    # Top 15 most read tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 most read tables", query_file)
+
+    # Top 15 most modified tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 most modified tables", query_file)
+
+    # Top 15 high read latency tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 high read latency tables", query_file)
+
+    # Top 15 high insert latency tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 high insert latency tables", query_file)
+
+    # Top 15 high update latency tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 high update latency tables", query_file)
+
+    # Top 15 high delete latency tables
+    performance_check(sess, option, info, u"Performance schema: Top 15 high delete latency tables", query_file)
+
+    # Redundant indexes
+    performance_check(sess, option, info, u"Performance schema: Redundant indexes", query_file)
+
+    # Tables not using InnoDB buffer
+    performance_check(sess, option, info, u"Performance schema: Tables not using InnoDB buffer", query_file)
+
+    # Top 15 Tables using InnoDB buffer
+    performance_check(sess, option, info, u"Performance schema: Top 15 Tables using InnoDB buffer", query_file)
+
+    # Top 15 Tables with InnoDB buffer free
+    performance_check(sess, option, info, u"Performance schema: Top 15 Tables with InnoDB buffer free", query_file)
+
+    # Top 15 Most executed queries
+    performance_check(sess, option, info, u"Performance schema: Top 15 Most executed queries", query_file)
+
+    # Latest 100 SQL queries in errors or warnings
+    performance_check(sess, option, info, u"Performance schema: Latest 100 SQL queries in errors or warnings", query_file)
+
+    # Top 20 queries with full table scans
+    performance_check(sess, option, info, u"Performance schema: Top 20 queries with full table scans", query_file)
+    # Last 50 queries with full table scans
+    performance_check(sess, option, info, u"Performance schema: Last 50 queries with full table scans", query_file)
+    # Top 15 reader queries (95% percentile)
+    performance_check(sess, option, info, u"Performance schema: Top 15 reader queries (95% percentile)", query_file)
+    # Top 15 most row look queries (95% percentile)
+    performance_check(sess, option, info, u"Performance schema: Top 15 most row look queries (95% percentile)", query_file)
+    # Top 15 total latency queries (95% percentile)
+    performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries (95% percentile)", query_file)
+    # Top 15 max latency queries (95% percentile)
+    performance_check(sess, option, info, u"Performance schema: Top 15 max latency queries (95% percentile)", query_file)
+    # Top 15 average latency queries (95% percentile)
+    performance_check(sess, option, info, u"Performance schema: Top 15 average latency queries (95% percentile)", query_file)
+    # Top 20 queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 20 queries with sort", query_file)
+    # Last 50 queries with sort
+    performance_check(sess, option, info, u"Performance schema: Last 50 queries with sort", query_file)
+    # Top 15 row sorting queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 row sorting queries with sort", query_file)
+    # Top 15 total latency queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries with sort", query_file)
+    # Top 15 merge queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 merge queries with sort", query_file)
+    # Top 15 average sort merges queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 average sort merges queries with sort", query_file)
+    # Top 15 scans queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 scans queries with sort", query_file)
+    # Top 15 range queries with sort
+    performance_check(sess, option, info, u"Performance schema: Top 15 range queries with sort", query_file)
+    # Top Top 20 queries with temp table
+    performance_check(sess, option, info, u"Performance schema: Top 20 queries with temp table", query_file)
+    # Top Last 50 queries with temp table
+    performance_check(sess, option, info, u"Performance schema: Last 50 queries with temp table", query_file)
+    # Top 15 total latency queries with temp table
+    performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries with temp table", query_file)
+    # Top 15 queries with temp table to disk
+    performance_check(sess, option, info, u"Performance schema: Top 15 queries with temp table to disk", query_file)
+    # Top 15 class events by number
+    performance_check(sess, option, info, u"Performance schema: Top 15 class events by number", query_file)
+    # Top 30 events by number
+    performance_check(sess, option, info, u"Performance schema: Top 30 events by number", query_file)
+    # Top 15 class events by total latency
+    performance_check(sess, option, info, u"Performance schema: Top 15 class events by total latency", query_file)
+    # Top 30 events by total latency
+    performance_check(sess, option, info, u"Performance schema: Top 30 events by total latency", query_file)
+    # Top 15 class events by max latency
+    performance_check(sess, option, info, u"Performance schema: Top 15 class events by max latency", query_file)
+    # Top 30 events by max latency
+    performance_check(sess, option, info, u"Performance schema: Top 30 events by max latency", query_file)
+
+    return recommendations, adjusted_vars, results
 
 
 def mariadb_ariadb(
