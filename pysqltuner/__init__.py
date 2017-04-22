@@ -1620,7 +1620,6 @@ def calculations(
         )
 
 
-# TODO finish mysql stats function
 def mysql_stats(
     option: tuner.Option,
     info: tuner.Info,
@@ -1821,7 +1820,88 @@ def mysql_stats(
 
     # Temporary tables
     if stat.created_temp_tables > 0:
-        pass
+        if calc.pct_temp_disk > 25 and calc.max_temp_table_size < 256 * 1024 ** 2:
+            option.format_print(f"Temporary tables created on disk {calc.pct_temp_disk}% ({stat.created_temp_disk_tables} on disk / {stat.created_temp_tables} total", style=tuner.Print.BAD)
+            adjusted_vars.extend((
+                f"tmp_table_size (> {util.bytes_to_string(info.temp_table_size)})",
+                f"max_heap_table_size (> {util.bytes_to_string(info.max_heap_table_size)})"
+            ))
+            recommendations.extend((
+                u"When making adjustments, make tmp_table_size / max_heap_table_size equal",
+                u"Reduce your SELECT DISTINCT queries without LIMIT clauses"
+            ))
+        elif calc.pct_temp_disk > 25 and calc.max_temp_table_size >= 256 * 1024 ** 2:
+            option.format_print(f"Temporary tables created on disk {calc.pct_temp_disk}% ({stat.created_temp_disk_tables} on disk / {stat.created_temp_tables} total", style=tuner.Print.BAD)
+            recommendations.extend((
+                u"Temporary table size is already large - reduce result set size",
+                u"Reduce your SELECT DISTINCT queries without LIMIT clauses"
+            ))
+        else:
+            option.format_print(f"Temporary tables created on disk {calc.pct_temp_disk}% ({stat.created_temp_disk_tables} on disk / {stat.created_temp_tables} total", style=tuner.Print.GOOD)
+    else:
+        option.format_print(u"No temp tables created on disk", style=tuner.Print.GOOD)
+
+    # Thread Cache
+    if info.thread_cache_size == 0:
+        option.format_print(u"Thread Cache is disabled", style=tuner.Print.BAD)
+        recommendations.append(u"Set thread_cache_size to 4 as a starting value")
+        adjusted_vars.append(u"thread_cache_size (start at 4)")
+    else:
+        if info.thread_handling == u"pools-of-threads":
+            option.format_print(u"Thread cache hit rate: not used with pools-of-threads", style=tuner.Print.INFO)
+        else:
+            if calc.thread_cache_hit_rate <= 50:
+                option.format_print(f"Thread Cache hit rate: {calc.thread_cache_hit_rate}% ({stat.created_threads} created / {stat.connections} connections)", style=tuner.Print.BAD)
+                adjusted_vars.append(f"thread_cache_size (> {info.thread_cache_size})")
+            else:
+                option.format_print(f"Thread Cache hit rate: {calc.thread_cache_hit_rate}% ({stat.created_threads} created / {stat.connections} connections)", style=tuner.Print.GOOD)
+
+    # Table Cache
+    if stat.open_tables > 0:
+        if calc.table_cache_hit_rate < 20:
+            option.format_print(f"Table Cache hit rate: {calc.table_cache_hit_rate}% ({stat.open_tables} open / {stat.opened_tables} opened)", style=tuner.Print.BAD)
+            if (info.ver_major, info.ver_minor, info.ver_micro) >= (5, 1):
+                table_cache: str = u"table_open_cache"
+            else:
+                table_cache: str = u"table_cache"
+
+            adjusted_vars.append(f"{table_cache} (> {getattr(info, table_cache)})")
+            recommendations.extend((
+                f"Increase {table_cache} gradually to avoid file descriptor limits",
+                f"Read this before increasing {table_cache} over 64 http://bit.ly/1mi7c4C",
+                f"Beware that open_files_limit ({info.open_files_limit}) variable should be greater than {table_cache} ({getattr(info, table_cache)})"
+            ))
+        else:
+            option.format_print(f"Table Cache hit rate: {calc.table_cache_hit_rate}% ({stat.open_tables} open / {stat.opened_tables} opened)", style=tuner.Print.GOOD)
+
+    # Open Files
+    if calc.pct_files_open > 85:
+        option.format_print(f"Open file limit used {calc.pct_files_open}% ({stat.open_files} / {info.open_files_limit})", style=tuner.Print.BAD)
+        adjusted_vars.append(f"open_files_limit (> {info.open_files_limit})")
+    else:
+        option.format_print(f"Open file limit used {calc.pct_files_open}% ({stat.open_files} / {info.open_files_limit})", style=tuner.Print.GOOD)
+
+    # Table Locks
+    if calc.pct_immediate_table_locks < 95:
+        option.format_print(f"Table locks acquired immediately: {calc.pct_immediate_table_locks}% ({stat.immediate_table_locks} immediate / {stat.waited_table_locks} locks", style=tuner.Print.BAD)
+        recommendations.append(u"Optimize queries and/or use InnoDB to reduce lock wait")
+    else:
+        option.format_print(f"Table locks acquired immediately: {calc.pct_immediate_table_locks}% ({stat.immediate_table_locks} immediate / {stat.waited_table_locks} locks", style=tuner.Print.GOOD)
+
+    # Binlog Cache
+    if calc.pct_binlog_cache < 90 and stat.binlog_cache_use > 0:
+        option.format_print(f"Binlog Cache Memory Access: {calc.pct_binlog_cache}% ({stat.binlog_cache_use - stat.binlog_cache_disk_use} memory / {stat.binlog_cache_use} total", style=tuner.Print.BAD)
+        recommendations.append(f"Increase binlog_cache_size (Actual value: {info.binlog_cache_size})")
+        adjusted_vars.append(f"binlog_cache_size ({util.bytes_to_string(info.binlog_cache_size + 16 * 1024 ** 2)})")
+    else:
+        option.format_print(f"Binlog Cache Memory Access: {calc.pct_binlog_cache}% ({stat.binlog_cache_use - stat.binlog_cache_disk_use} memory / {stat.binlog_cache_use} total", style=tuner.Print.GOOD)
+
+    # Performance Options
+    if (info.ver_major, info.ver_minor, info.ver_micro) < (5, 1):
+        recommendations.append(u"Upgrade to MySQL 5.5+ to use asynchronous write")
+    elif info.concurrent_insert:
+        recommendations.append(u"Enable concurrent_insert by setting it to 1")
+
     return recommendations, adjusted_vars, results
 
 

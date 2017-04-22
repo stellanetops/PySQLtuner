@@ -309,6 +309,9 @@ class Info:
         self.slaves: typ.Dict[str, str] = {}
         self.replicas: typ.Dict[str, str] = {}
         self.read_only: bool = False
+        self.thread_cache_size: int = 0
+        self.thread_handling: str = None
+        self.concurrent_insert: bool = False
 
         version_query_file: str = osp.join(self.query_dir, u"version-query.sql")
 
