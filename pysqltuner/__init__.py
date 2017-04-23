@@ -2081,9 +2081,9 @@ def performance_check(
     :param str query_file: name of file containing query
     """
     option.format_print(subheader, style=tuner.Print.SUBHEADER)
-    query: str = osp.join(info.query_dir, query_file)
+    query: sqla.Text = info.query_from_file(query_file)
     line_num: int = 0
-    result = sess.execute(sqla.Text(query))
+    result = sess.execute(query)
     for query_line in result.fetchall():
         option.format_print(f" +-- {line_num}: {query_line}")
         line_num += 1
@@ -2138,7 +2138,8 @@ def mysql_pfs(
     if not option.pf_stat or not info.performance_schema:
         return recommendations, adjusted_vars, results
 
-    result = sess.execute(sqla.Text(u"SELECT `ver`.`sys_version` AS `SYS_VERSION` FROM `sys`.`version` AS `ver`;"))
+    sys_version_query: str = info.query_from_file(u"sys-version-query.sql")
+    result = sess.execute(sys_version_query)
     sys_version: str = list(result.fetchall())[0].SYS_VERSION
 
     option.format_print(f"Sys Schema Version: {sys_version}", style=tuner.Print.INFO)
@@ -2146,16 +2147,16 @@ def mysql_pfs(
     # TODO create and fill in query files
 
     # Top Users per connection
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per connection", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per connection", u"top-connection-users-query.sql")
 
     # Top Users per statement
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement", u"top-statement-users-query.sql")
 
     # Top Users per statement latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per statement latency", u"top-statement-latency-users-query.sql")
 
     # Top Users per lock latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per per lock latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per per lock latency", u"top-lock-latency-users.sql")
 
     # Top Users per full scans
     performance_check(sess, option, info, u"Performance schema: Top 5 users per full scan", query_file)
@@ -2312,7 +2313,7 @@ def mysql_pfs(
     performance_check(sess, option, info, u"Performance schema: Top 15 high read latency indexes", query_file)
 
     # Top 15 high insert latency indexes
-    performance_check(sess, option, info, u"Performance schema: Top 15 high insert latency indexex", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 15 high insert latency indexes", query_file)
 
     # Top 15 high update latency indexes
     performance_check(sess, option, info, u"Performance schema: Top 15 high update latency indexes", query_file)
@@ -2358,52 +2359,76 @@ def mysql_pfs(
 
     # Top 20 queries with full table scans
     performance_check(sess, option, info, u"Performance schema: Top 20 queries with full table scans", query_file)
+
     # Last 50 queries with full table scans
     performance_check(sess, option, info, u"Performance schema: Last 50 queries with full table scans", query_file)
+
     # Top 15 reader queries (95% percentile)
-    performance_check(sess, option, info, u"Performance schema: Top 15 reader queries (95% percentile)", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 15 read queries (95% percentile)", query_file)
+
     # Top 15 most row look queries (95% percentile)
     performance_check(sess, option, info, u"Performance schema: Top 15 most row look queries (95% percentile)", query_file)
+
     # Top 15 total latency queries (95% percentile)
     performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries (95% percentile)", query_file)
+
     # Top 15 max latency queries (95% percentile)
     performance_check(sess, option, info, u"Performance schema: Top 15 max latency queries (95% percentile)", query_file)
+
     # Top 15 average latency queries (95% percentile)
     performance_check(sess, option, info, u"Performance schema: Top 15 average latency queries (95% percentile)", query_file)
+
     # Top 20 queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 20 queries with sort", query_file)
+
     # Last 50 queries with sort
     performance_check(sess, option, info, u"Performance schema: Last 50 queries with sort", query_file)
+
     # Top 15 row sorting queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 row sorting queries with sort", query_file)
+
     # Top 15 total latency queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries with sort", query_file)
+
     # Top 15 merge queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 merge queries with sort", query_file)
+
     # Top 15 average sort merges queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 average sort merges queries with sort", query_file)
+
     # Top 15 scans queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 scans queries with sort", query_file)
+
     # Top 15 range queries with sort
     performance_check(sess, option, info, u"Performance schema: Top 15 range queries with sort", query_file)
+
     # Top Top 20 queries with temp table
     performance_check(sess, option, info, u"Performance schema: Top 20 queries with temp table", query_file)
+
     # Top Last 50 queries with temp table
     performance_check(sess, option, info, u"Performance schema: Last 50 queries with temp table", query_file)
+
     # Top 15 total latency queries with temp table
     performance_check(sess, option, info, u"Performance schema: Top 15 total latency queries with temp table", query_file)
+
     # Top 15 queries with temp table to disk
     performance_check(sess, option, info, u"Performance schema: Top 15 queries with temp table to disk", query_file)
+
     # Top 15 class events by number
     performance_check(sess, option, info, u"Performance schema: Top 15 class events by number", query_file)
+
     # Top 30 events by number
     performance_check(sess, option, info, u"Performance schema: Top 30 events by number", query_file)
+
     # Top 15 class events by total latency
     performance_check(sess, option, info, u"Performance schema: Top 15 class events by total latency", query_file)
+
     # Top 30 events by total latency
     performance_check(sess, option, info, u"Performance schema: Top 30 events by total latency", query_file)
+
     # Top 15 class events by max latency
     performance_check(sess, option, info, u"Performance schema: Top 15 class events by max latency", query_file)
+
     # Top 30 events by max latency
     performance_check(sess, option, info, u"Performance schema: Top 30 events by max latency", query_file)
 
