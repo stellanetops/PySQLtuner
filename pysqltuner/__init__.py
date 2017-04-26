@@ -2156,49 +2156,49 @@ def mysql_pfs(
     performance_check(sess, option, info, u"Performance schema: Top 5 users per statement latency", u"top-statement-latency-users-query.sql")
 
     # Top Users per lock latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per per lock latency", u"top-lock-latency-users.sql")
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per per lock latency", u"top-lock-latency-users-query.sql")
 
     # Top Users per full scans
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per full scan", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per full scan", u"top-full-scans-users-query.sql")
 
     # Top Users per rows sent
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows sent", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows sent", u"top-rows-sent-users-query.sql")
 
     # Top Users per rows modified
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows modified", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per rows modified", u"top-rows-modified-users-query.sql")
 
     # Top Users per io
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per io", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per io", u"top-io-users-query.sql")
 
     # Top Users per io latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 users per io latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 users per io latency", u"top-io-latency-users-query.sql")
 
     # Top Hosts per connection
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per connection", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per connection", u"top-connection-hosts-query.sql")
 
     # Top Hosts per statement
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement", u"top-statement-hosts-query.sql")
 
     # Top Hosts per statement latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per statement latency", u"top-statement-latency-hosts-query.sql")
 
     # Top Hosts per lock latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per lock latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per lock latency", u"top-lock-latency-hosts-query.sql")
 
     # Top Hosts per full scans
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per full scans", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per full scans", u"top-full-scans-hosts-query.sql")
 
     # Top Hosts per rows sent
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows sent", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows sent", u"top-rows-sent-hosts-query.sql")
 
     # Top Hosts per rows modified
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows modified", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per rows modified", u"top-rows-modified-hosts-query.sql")
 
     # Top Hosts per io
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io", u"top-io-hosts-query.sql")
 
     # Top Hosts per io latency
-    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io latency", query_file)
+    performance_check(sess, option, info, u"Performance schema: Top 5 hosts per io latency", u"top-io-latency-hosts-query.sql")
 
     # Top IO Type order by total io
     performance_check(sess, option, info, u"Performance schema: Top IO Type order by total io", query_file)
